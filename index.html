@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lin Ledger</title>
+<meta name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5">
+<meta name="description"
+      content="A ledger for your money on hand, your bills and your loans.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f8fb" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Lin Ledger">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='20'>%F0%9F%92%B0</text></svg>">
+<link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+
+<div id="root">
+  <div class="boot">
+    <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l5-6 4 3 5-8 4 5"/></svg>
+    <p>Loading</p>
+  </div>
+</div>
+
+<noscript>
+  <div class="fallback">
+    <h1>Lin Ledger</h1>
+    <p>This application needs JavaScript. Please switch JavaScript on.</p>
+  </div>
+</noscript>
+
+<!--
+  A browser that does not understand a module ignores the first tag and reads
+  the second one. The message then explains what to do.
+-->
+<script type="module" src="assets/js/app.js"></script>
+<script nomodule>
+  document.getElementById('root').innerHTML =
+    '<div class="fallback"><h1>Lin Ledger</h1>' +
+    '<p>This browser is too old for this application. ' +
+    'Use a recent version of Chrome, Safari, Firefox or Edge.</p></div>'
+</script>
+
+<script>
+// The application needs a server, because a browser blocks a module on a
+// "file://" page and refuses a cookie there. This message says what to do.
+if (location.protocol === 'file:') {
+  document.getElementById('root').innerHTML =
+    '<div class="fallback"><h1>Lin Ledger</h1>' +
+    '<p>Please open this application through a local server. A browser blocks ' +
+    'the program files on a "file://" page, and it also refuses to keep the ' +
+    'sign in cookie.</p>' +
+    '<p>In this folder, run one of these commands, then open ' +
+    '<code>http://localhost:8080</code>:</p>' +
+    '<pre>python -m http.server 8080</pre>' +
+    '<pre>npx serve -l 8080</pre></div>'
+}
+</script>
+
+<script>
+// The service worker lets you install the application on a telephone and open
+// it when the network fails. It uses the network first, therefore it never
+// serves an old file while the network works.
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {})
+  })
+}
+</script>
+
+</body>
+</html>

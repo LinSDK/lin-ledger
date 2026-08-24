@@ -1,0 +1,19 @@
+{
+  "name": "Lin Ledger",
+  "short_name": "Lin Ledger",
+  "description": "A ledger for your money on hand, your bills and your loans.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1220",
+  "theme_color": "#0b1220",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='40' fill='%230b1220'/%3E%3Cpath d='M40 128l32-40 26 20 34-56 26 34' fill='none' stroke='%234ade80' stroke-width='12' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
