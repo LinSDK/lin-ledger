@@ -8,6 +8,7 @@ import * as D from '../dates.js'
 import { icon, esc, card, listRow, money, qs, delegate } from '../ui.js'
 import { openTransfer, openAddBill } from './actions.js'
 import { openBatchAdd } from './batch-add.js'
+import { openSplitAdd } from './split-add.js'
 
 export async function render (host) {
   const st = store.state
@@ -31,6 +32,9 @@ export async function render (host) {
     ].join(''))}
 
     ${card('Quick actions', [
+      listRow({ title: 'One purchase, several accounts',
+                sub: 'For example 500 from Cash and 15 back in Coins',
+                attrs: 'data-act="split"' }),
       listRow({ title: 'Add several movements',
                 sub: 'One list, many accounts, one save',
                 attrs: 'data-act="batch"' }),
@@ -48,6 +52,7 @@ export async function render (host) {
     location.hash = node.dataset.go
   })
   delegate(host, 'click', '[data-act]', (e, node) => {
+    if (node.dataset.act === 'split') openSplitAdd()
     if (node.dataset.act === 'batch') openBatchAdd()
     if (node.dataset.act === 'transfer') openTransfer()
     if (node.dataset.act === 'bill') openAddBill()

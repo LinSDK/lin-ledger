@@ -230,12 +230,30 @@ export async function ensureHorizon () {
 // The forecast
 // ---------------------------------------------------------------------------
 
-/** How much was spent in each category between two dates. */
+/**
+ * How much each category cost, between two dates. The answer is in centavos,
+ * and the key is the category id. A row with no category keeps the key "null".
+ *
+ * The sum covers money that went out AND money that came back into a spending
+ * category. Change from a purchase and a refund are both money that returns,
+ * therefore they reduce the cost of that category.
+ *
+ * Without this rule, "I paid 500 from Cash and took 15 in Coins as change"
+ * would read as 500 of spending. The true cost is 485.
+ *
+ * Money that comes in against an income category is real income, therefore this
+ * function leaves it out. A transfer never counts, because it buys nothing.
+ */
 export function spentByCategory (from, to) {
   const out = {}
   for (const t of state.transactions) {
-    if (t.type !== 'expense') continue
     if (t.occurred_on < from || t.occurred_on > to) continue
+    if (t.type !== 'expense' && t.type !== 'income') continue
+    const cat = t.category_id ? categoryById(t.category_id) : null
+    // Money in counts only when it returns to a spending category.
+    if (t.type === 'income' && (!cat || cat.kind !== 'expense')) continue
+    // Money out counts unless the category is an income category.
+    if (t.type === 'expense' && cat && cat.kind !== 'expense') continue
     out[t.category_id] = (out[t.category_id] || 0) - t.amount
   }
   return out
@@ -375,13 +393,69 @@ export async function createTransfer ({ fromId, toId, amount, date, note }) {
   await insertRow('transactions', {
     account_id: fromId, category_id: cat, type: 'transfer_out',
     amount: -Math.abs(amount), occurred_on: when, description: note || 'Transfer',
-    transfer_group: group,
+    transfer_group: group, group_kind: 'transfer',
   })
   await insertRow('transactions', {
     account_id: toId, category_id: cat, type: 'transfer_in',
     amount: Math.abs(amount), occurred_on: when, description: note || 'Transfer',
-    transfer_group: group,
+    transfer_group: group, group_kind: 'transfer',
   })
+}
+
+/**
+ * Writes one event that touches more than one account.
+ *
+ * A purchase can take money from two pockets, and it can give change back.
+ * "I paid 500 from Cash and took 15 in Coins as change" is one event with two
+ * rows: Cash -500 and Coins +15. The true cost is the sum, which is 485.
+ *
+ * legs : [{ account_id, direction: 'out' | 'in', amount }]  amount in centavos
+ *
+ * The rule for the type of each row is short:
+ *   money out  -> expense
+ *   money in   -> income
+ * When the sum is exactly zero the event moved money and bought nothing,
+ * therefore the rows become a transfer and no category counts them.
+ *
+ * Every row carries the same group value. The screens then show one item, and
+ * a delete removes the whole event.
+ */
+export async function createSplit ({ description, category_id, occurred_on, legs }) {
+  const clean = legs
+    .map(l => ({ ...l, amount: Math.abs(l.amount || 0) }))
+    .filter(l => l.account_id && l.amount > 0)
+  if (clean.length === 0) throw new Error('Add at least one account with an amount.')
+
+  const net = clean.reduce((a, l) => a + (l.direction === 'in' ? l.amount : -l.amount), 0)
+  const isMove = net === 0
+  const group = crypto.randomUUID()
+  const when = occurred_on || D.today()
+  const moveCat = categoryByName('Transfer')?.id ?? null
+
+  const rows = clean.map(l => ({
+    account_id: l.account_id,
+    category_id: isMove ? moveCat : (category_id || null),
+    type: isMove
+      ? (l.direction === 'in' ? 'transfer_in' : 'transfer_out')
+      : (l.direction === 'in' ? 'income' : 'expense'),
+    amount: l.direction === 'in' ? l.amount : -l.amount,
+    occurred_on: when,
+    description: description || (isMove ? 'Moved money' : 'Purchase'),
+    transfer_group: clean.length > 1 ? group : null,
+    group_kind: clean.length > 1 ? (isMove ? 'transfer' : 'split') : null,
+  }))
+
+  const made = await createTransactions(rows)
+  return { rows: made, net, group: clean.length > 1 ? group : null }
+}
+
+/** Every row of one event. */
+export const transactionsInGroup = groupId =>
+  groupId ? state.transactions.filter(t => t.transfer_group === groupId) : []
+
+/** Removes every row of one event. */
+export async function deleteGroup (groupId) {
+  unwrap(await supabase.from('transactions').delete().eq('transfer_group', groupId))
 }
 
 // --- recurring rules ---

@@ -11,6 +11,7 @@ import { today } from '../dates.js'
 import { formSheet, toast, icon } from '../ui.js'
 import { openTransfer } from './actions.js'
 import { openBatchAdd } from './batch-add.js'
+import { openSplitAdd } from './split-add.js'
 
 export function openQuickAdd (defaults = {}) {
   const accounts = store.state.accounts.filter(a => !a.is_archived)
@@ -55,6 +56,10 @@ export function openQuickAdd (defaults = {}) {
       { name: 'description', label: 'What was it for', type: 'text',
         when: v => v.type !== 'transfer',
         placeholder: 'Groceries, load, fare' },
+      { name: 'split', label: '', type: 'static',
+        when: v => v.type !== 'transfer',
+        render: () => `<button type="button" class="btn btn-ghost btn-block btn-sm"
+          data-open-split>${icon('swap')} One purchase, several accounts</button>` },
       { name: 'many', label: '', type: 'static',
         when: v => v.type !== 'transfer',
         render: () => `<button type="button" class="btn btn-ghost btn-block btn-sm"
@@ -85,6 +90,18 @@ export function openQuickAdd (defaults = {}) {
         if (e.target.closest('[data-open-transfer]')) {
           sheet.close()
           openTransfer()
+        }
+        if (e.target.closest('[data-open-split]')) {
+          const form = sheet.form
+          const carry = {
+            account_id: form?.elements?.account_id?.value,
+            occurred_on: form?.elements?.occurred_on?.value,
+            description: form?.elements?.description?.value,
+            category_id: form?.elements?.category_id?.value,
+          }
+          sheet.close()
+          openSplitAdd(carry)
+          return
         }
         if (e.target.closest('[data-open-batch]')) {
           const form = sheet.form

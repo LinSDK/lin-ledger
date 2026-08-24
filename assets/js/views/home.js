@@ -136,10 +136,41 @@ const TX_TYPE_LABEL = {
   adjustment: 'adjustment',
 }
 
-function filteredTransactions () {
-  const all = store.state.transactions
-  if (txFilter === 'expense') return all.filter(t => t.amount < 0)
-  if (txFilter === 'income') return all.filter(t => t.amount > 0)
+/**
+ * Turns the rows into events, newest first.
+ *
+ * A purchase that took money from two accounts holds one row for each account.
+ * The list must treat those rows as one event, for three reasons: the sum is
+ * the true cost, a filter must keep or drop the whole event, and the cut at the
+ * end of a page must never divide one event in two.
+ *
+ * Each event is { key, group, kind, rows, date, net }.
+ */
+function buildEvents () {
+  const out = []
+  const seen = new Map()
+  for (const t of store.state.transactions) {
+    if (!t.transfer_group) {
+      out.push({ key: t.id, group: null, kind: null, rows: [t],
+                 date: t.occurred_on, net: t.amount })
+      continue
+    }
+    const hit = seen.get(t.transfer_group)
+    if (hit) { hit.rows.push(t); hit.net += t.amount; continue }
+    const item = { key: t.transfer_group, group: t.transfer_group,
+                   kind: t.group_kind, rows: [t], date: t.occurred_on,
+                   net: t.amount }
+    seen.set(t.transfer_group, item)
+    out.push(item)
+  }
+  return out
+}
+
+/** The events that the chosen filter keeps. The sum of the event decides. */
+function filteredEvents () {
+  const all = buildEvents()
+  if (txFilter === 'expense') return all.filter(e => e.net < 0)
+  if (txFilter === 'income') return all.filter(e => e.net > 0)
   return all
 }
 
@@ -153,26 +184,26 @@ function filteredTransactions () {
  * groups them by day.
  */
 function transactionsCard () {
-  const rows = filteredTransactions()
-  const shown = rows.slice(0, txShown)
-  const spent = rows.filter(t => t.amount < 0).reduce((a, t) => a - t.amount, 0)
-  const got = rows.filter(t => t.amount > 0).reduce((a, t) => a + t.amount, 0)
+  const events = filteredEvents()
+  const shown = events.slice(0, txShown)
+  const spent = events.filter(e => e.net < 0).reduce((a, e) => a - e.net, 0)
+  const got = events.filter(e => e.net > 0).reduce((a, e) => a + e.net, 0)
 
-  const body = rows.length === 0
+  const body = events.length === 0
     ? empty(txFilter === 'income'
         ? 'You have recorded no money that came in.'
         : txFilter === 'expense'
           ? 'You have recorded no spending yet.'
           : 'You have recorded no money movement yet. Use the + button to add one.')
-    : groupTxByDay(shown, rows) + `
+    : groupTxByDay(shown, events) + `
       <div class="tx-foot">
         <span class="hint">
-          ${shown.length} of ${rows.length}
-          ${rows.length === 1 ? 'movement' : 'movements'}
+          ${shown.length} of ${events.length}
+          ${events.length === 1 ? 'movement' : 'movements'}
         </span>
-        ${rows.length > shown.length ? `
+        ${events.length > shown.length ? `
           <button class="btn btn-ghost btn-sm" data-tx-more>
-            Show ${Math.min(TX_STEP, rows.length - shown.length)} more</button>` : ''}
+            Show ${Math.min(TX_STEP, events.length - shown.length)} more</button>` : ''}
         ${txShown > 8 ? `
           <button class="btn btn-ghost btn-sm" data-tx-less>Show fewer</button>` : ''}
       </div>`
@@ -208,19 +239,19 @@ function transactionsCard () {
  */
 function groupTxByDay (shown, all) {
   const dayTotal = new Map()
-  for (const t of all) {
-    dayTotal.set(t.occurred_on, (dayTotal.get(t.occurred_on) || 0) + t.amount)
+  for (const e of all) {
+    dayTotal.set(e.date, (dayTotal.get(e.date) || 0) + e.net)
   }
   const dayCount = new Map()
-  for (const t of all) {
-    dayCount.set(t.occurred_on, (dayCount.get(t.occurred_on) || 0) + 1)
+  for (const e of all) {
+    dayCount.set(e.date, (dayCount.get(e.date) || 0) + 1)
   }
 
   const days = []
-  for (const t of shown) {
+  for (const e of shown) {
     const last = days[days.length - 1]
-    if (last && last.date === t.occurred_on) last.items.push(t)
-    else days.push({ date: t.occurred_on, items: [t] })
+    if (last && last.date === e.date) last.items.push(e)
+    else days.push({ date: e.date, items: [e] })
   }
 
   return days.map(day => {
@@ -233,11 +264,59 @@ function groupTxByDay (shown, all) {
         <span>${D.fmtDay(day.date)}${day.date === D.today() ? ' &middot; today' : ''}</span>
         <span class="${net < 0 ? 'neg' : 'pos'}">${fmt(net)}</span>
       </div>
-      ${day.items.map(txRow).join('')}
+      ${day.items.map(item =>
+        item.group ? txGroupRow(item) : txRow(item.rows[0])).join('')}
       ${hidden > 0 ? `<p class="tx-hidden">${hidden} more on this day.
         Select "Show more" to see ${hidden === 1 ? 'it' : 'them'}.</p>` : ''}
     </div>`
   }).join('')
+}
+
+
+/**
+ * Joins the rows of one event into one item.
+ *
+ * A purchase that took money from two accounts holds one row for each account.
+ * Two separate lines would hide the true cost, therefore this function puts
+ * them together and the screen shows the sum.
+ */
+/** One event that touched more than one account. */
+function txGroupRow (item) {
+  const rows = item.rows
+  const net = item.net
+  const first = rows[0]
+  const cat = store.categoryById(first.category_id)
+  const isMove = item.kind === 'transfer'
+  const names = [...new Set(rows.map(t => store.accountById(t.account_id)?.name)
+    .filter(Boolean))]
+
+  return `
+  <div class="tx-group">
+    <button class="row tx-row" data-tx="${first.id}">
+      <span class="dot" style="background:${esc(cat?.color || 'var(--text-3)')}"></span>
+      <span class="row-main">
+        <span class="row-title">
+          ${esc(first.description || (isMove ? 'Moved money' : 'Purchase'))}
+          <em class="tx-group-tag">${isMove ? 'moved' : 'split'}</em>
+        </span>
+        <span class="row-sub">
+          ${cat && !isMove ? esc(cat.name) + ' &middot; ' : ''}${esc(names.join(', '))}
+        </span>
+      </span>
+      <span class="row-side">
+        <span class="row-right ${net < 0 ? 'neg' : net > 0 ? 'pos' : 'muted'}">${fmt(net)}</span>
+        <span class="row-rsub">${rows.length}
+          ${rows.length === 1 ? 'account' : 'accounts'}</span>
+      </span>
+    </button>
+    <div class="tx-legs">
+      ${rows.map(t => `
+        <div class="tx-leg">
+          <span>${esc(store.accountById(t.account_id)?.name ?? '?')}</span>
+          <span class="${t.amount < 0 ? 'neg' : 'pos'}">${fmt(t.amount)}</span>
+        </div>`).join('')}
+    </div>
+  </div>`
 }
 
 function txRow (t) {
@@ -479,13 +558,11 @@ function horizonLabel (proj) {
 
 /** The largest spending of the month, by category. */
 function topCategories (from, to, limit = 4) {
-  const byCat = {}
-  for (const t of store.state.transactions) {
-    if (t.type !== 'expense') continue
-    if (t.occurred_on < from || t.occurred_on > to) continue
-    byCat[t.category_id] = (byCat[t.category_id] || 0) - t.amount
-  }
+  // store.spentByCategory takes change and a refund away from the category,
+  // therefore a purchase that gave money back reads at its true cost.
+  const byCat = store.spentByCategory(from, to)
   return Object.entries(byCat)
+    .filter(([, value]) => value !== 0)
     .map(([id, value]) => {
       const cat = store.categoryById(id)
       const budget = cat?.budget_amount

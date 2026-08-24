@@ -130,12 +130,11 @@ function spanFor (key, now) {
 function byCategory (tx, type, span) {
   const months = Math.max(1, Math.round(
     (D.daysBetween(span.from, span.to) + 1) / 30.44))
-  const bag = {}
-  for (const t of tx) {
-    if (t.type !== type) continue
-    bag[t.category_id] = (bag[t.category_id] || 0) + Math.abs(t.amount)
-  }
-  return Object.entries(bag).map(([id, value]) => {
+  // store.spentByCategory works over the whole record, therefore this asks it
+  // for the window that the screen shows. It takes change and a refund away
+  // from the category, so a cost never reads larger than the truth.
+  const bag = store.spentByCategory(span.from, span.to)
+  return Object.entries(bag).filter(([, v]) => v !== 0).map(([id, value]) => {
     const c = store.categoryById(id)
     let budget = null
     if (c?.budget_amount) {

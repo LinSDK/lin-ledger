@@ -824,6 +824,52 @@ textarea.inp { min-height: 70px; resize: vertical; line-height: 1.45; }
 .batch-acct span:nth-child(2) { font-variant-numeric: tabular-nums; font-weight: 650; }
 .batch-acct span:nth-child(3) { font-size: .72rem; }
 
+/* --- one event across several accounts ------------------------------------ */
+
+.split-legs { display: flex; flex-direction: column; gap: 8px;
+              padding: 11px; border-radius: var(--r-sm); background: var(--bg-3); }
+.split-legs-head { display: flex; align-items: baseline; justify-content: space-between;
+                   gap: 8px; font-size: .72rem; font-weight: 650; color: var(--text-2);
+                   text-transform: uppercase; letter-spacing: .04em; }
+.split-leg { display: grid; gap: 6px; align-items: center;
+             grid-template-columns: minmax(0, 1fr) auto 34px;
+             grid-template-areas: "acct dir del" "amt amt amt"; }
+.split-leg-acct { grid-area: acct; min-height: 40px; padding: 8px 30px 8px 10px;
+                  background-size: 16px; }
+.split-leg-dir { grid-area: dir; padding: 2px; background: var(--bg-2); }
+.split-leg-dir .seg { min-height: 34px; padding: 5px 12px; font-size: .78rem; }
+.split-leg-amt { grid-area: amt; min-height: 42px; }
+.split-leg-del { grid-area: del; width: 34px; height: 34px; color: var(--text-3); }
+.split-leg-del:hover:not(:disabled) { color: var(--bad); }
+.split-leg-del:disabled { opacity: .3; pointer-events: none; }
+.split-leg + .split-leg { padding-top: 8px; border-top: 1px solid var(--line); }
+
+@media (min-width: 520px) {
+  .split-leg { grid-template-columns: minmax(0, 1fr) auto minmax(110px, 140px) 34px;
+               grid-template-areas: "acct dir amt del"; }
+  .split-leg + .split-leg { padding-top: 6px; }
+}
+
+.split-sum { display: flex; flex-direction: column; gap: 8px; padding: 11px;
+             border-radius: var(--r-sm); background: var(--bg-3); }
+.split-net { display: flex; align-items: baseline; justify-content: space-between;
+             gap: 9px; }
+.split-net span { font-size: .72rem; font-weight: 650; color: var(--text-2);
+                  text-transform: uppercase; letter-spacing: .04em; }
+.split-net strong { font-size: 1.5rem; font-weight: 700;
+                    font-variant-numeric: tabular-nums; }
+.split-msg { font-size: .82rem; line-height: 1.5; }
+.split-sum .batch-acct { background: var(--bg-2); }
+
+/* A split in the movement list shows as one item with its lines under it. */
+.tx-legs { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 6px 26px; }
+.tx-leg { display: flex; justify-content: space-between; gap: 8px;
+          font-size: .74rem; color: var(--text-2); }
+.tx-leg span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
+.tx-group-tag { font-size: .62rem; font-style: normal; font-weight: 650;
+                text-transform: uppercase; letter-spacing: .05em; padding: 1px 5px;
+                border-radius: 4px; background: var(--accent-2); color: var(--accent); }
+
 /* --- respect a request for less motion ----------------------------------- */
 
 @media (prefers-reduced-motion: reduce) {
