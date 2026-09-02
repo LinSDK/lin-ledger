@@ -112,8 +112,8 @@ function accountCard (b) {
       ${recent.length ? `<div class="mini-list">
         ${recent.map(t => `<div class="mini-row">
           <span>${esc(t.description || 'Movement')}</span>
-          <span class="muted">${D.fmtShort(t.occurred_on)}${t.occurred_time
-            ? ' ' + D.fmtTime(t.occurred_time) : ''}</span>
+          <span class="muted">${D.fmtShort(t.occurred_on)}${D.clockOf(t)
+            ? ' ' + D.fmtTime(D.clockOf(t)) : ''}</span>
           <span class="${t.amount < 0 ? 'neg' : 'pos'}">${fmt(t.amount)}</span>
         </div>`).join('')}
       </div>` : ''}

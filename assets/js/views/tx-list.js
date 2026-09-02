@@ -56,14 +56,14 @@ export function buildEvents (rows) {
   for (const t of rows) {
     if (!t.transfer_group) {
       out.push({ key: t.id, group: null, kind: null, rows: [t],
-                 date: t.occurred_on, time: t.occurred_time || null, net: t.amount })
+                 date: t.occurred_on, time: D.clockOf(t), net: t.amount })
       continue
     }
     const hit = seen.get(t.transfer_group)
     if (hit) { hit.rows.push(t); hit.net += t.amount; continue }
     const item = { key: t.transfer_group, group: t.transfer_group,
                    kind: t.group_kind, rows: [t], date: t.occurred_on,
-                   time: t.occurred_time || null, net: t.amount }
+                   time: D.clockOf(t), net: t.amount }
     seen.set(t.transfer_group, item)
     out.push(item)
   }
@@ -183,11 +183,11 @@ function groupByDay (shown, all, showAccount) {
 /**
  * The clock, for the right side of a row.
  *
- * A row with no clock shows nothing at all. Every row that came before the
- * clock column existed carries no time, therefore a label on each one would
- * repeat itself down the whole list and say nothing that the reader needs. The
- * heading of the day already carries the date, and the sheet that changes a
- * movement explains the empty box.
+ * A row with no clock shows nothing at all. Every row that an importer wrote
+ * carries no clock, therefore a label on each one would repeat itself down the
+ * whole list and say nothing that the reader needs. The heading of the day
+ * already carries the date, and the sheet that changes a movement explains the
+ * empty box. dates.clockOf holds the rule that decides.
  */
 function stamp (value) {
   const text = D.fmtTime(value)
@@ -253,7 +253,7 @@ function singleRow (t, showAccount) {
     </span>
     <span class="row-side">
       <span class="row-right ${t.amount < 0 ? 'neg' : 'pos'}">${fmt(t.amount)}</span>
-      ${stamp(t.occurred_time)}
+      ${stamp(D.clockOf(t))}
     </span>
   </button>`
 }

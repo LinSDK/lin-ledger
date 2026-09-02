@@ -8,7 +8,7 @@
 import * as store from '../store.js'
 import { formSheet, confirmSheet, toast, esc, icon } from '../ui.js'
 import { fmt } from '../money.js'
-import { today, toTimeInput, fmtDate, fmtTime } from '../dates.js'
+import { today, clockOf, withClock, fmtDate, fmtTime } from '../dates.js'
 
 const accountOptions = () => store.state.accounts
   .filter(a => !a.is_archived)
@@ -404,6 +404,7 @@ export function openAddBill (defaults = {}) {
  */
 export function openEditTransaction (tx) {
   const linked = findLink(tx)
+  const clock = clockOf(tx)
   const isTransfer = tx.type === 'transfer_in' || tx.type === 'transfer_out'
   const kind = tx.type === 'income' ? 'income' : 'expense'
 
@@ -422,9 +423,9 @@ export function openEditTransaction (tx) {
       { name: 'amount', label: 'Amount', type: 'money', required: true,
         hint: kind === 'income' ? 'Money that came in.' : 'Money that went out.' },
       { name: 'occurred_on', label: 'Date', type: 'date', required: true },
-      { name: 'occurred_time', label: 'Time', type: 'time',
-        hint: tx.occurred_time
-          ? `Recorded at ${fmtTime(tx.occurred_time)}.`
+      { name: 'clock', label: 'Time', type: 'time',
+        hint: clock
+          ? `This movement happened at ${fmtTime(clock)}.`
           : 'This movement carries no time. Set one to put it in order inside '
             + 'its day. The date alone decides every money figure.' },
       { name: 'description', label: 'What was it for', type: 'text' },
@@ -434,7 +435,7 @@ export function openEditTransaction (tx) {
     ],
     values: {
       amount: Math.abs(tx.amount), occurred_on: tx.occurred_on,
-      occurred_time: toTimeInput(tx.occurred_time),
+      clock: clock || '',
       description: tx.description || '', category_id: tx.category_id || '',
       account_id: tx.account_id,
     },
@@ -450,12 +451,16 @@ export function openEditTransaction (tx) {
       const signed = (tx.type === 'income' || tx.type === 'transfer_in') ? size
                    : tx.type === 'adjustment' ? (tx.amount < 0 ? -size : size)
                    : -size
-      await store.updateTransaction(tx.id, {
+      // A time that a person typed goes into created_at, with the date beside
+      // it. An empty box writes nothing, therefore a movement that never had a
+      // clock does not gain a false one.
+      const patch = {
         amount: signed, occurred_on: v.occurred_on,
-        occurred_time: v.occurred_time || null,
         description: v.description,
         category_id: v.category_id || null, account_id: v.account_id,
-      })
+      }
+      if (v.clock) patch.created_at = withClock(v.occurred_on, v.clock)
+      await store.updateTransaction(tx.id, patch)
       await store.refresh()
       toast('The movement is saved.', 'ok')
     },

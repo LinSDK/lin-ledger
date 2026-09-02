@@ -256,15 +256,28 @@ export async function boot () {
   // One message for each day, and only when the user turned it on.
   showDueReminders(store.state.upcoming)
 
-  // Make the bill rows that the rules reach, then draw again if rows appeared.
-  store.ensureHorizon()
-    .then(async made => {
+  // The work that the application does for itself, in order and one time each.
+  // It runs after the first draw, because neither piece changes a figure that a
+  // person is waiting to read.
+  void (async () => {
+    try {
+      // "Transpo & Food" becomes Transportation and Food. This is why the
+      // application needs no SQL file for that change.
+      if (await store.ensureCategorySplit()) {
+        await store.refresh()
+        toast('"Transpo & Food" is now Transportation and Food. Every movement '
+              + 'that it held is in Food.', 'ok', 7000)
+      }
+    } catch (ex) { console.warn('The categories did not divide:', ex.message) }
+
+    try {
+      const made = await store.ensureHorizon()
       if (made > 0) {
         await store.refresh()
         toast(`${made} bill ${made === 1 ? 'row' : 'rows'} added from your rules.`, 'ok')
       }
-    })
-    .catch(ex => console.warn('The bill rows did not generate:', ex.message))
+    } catch (ex) { console.warn('The bill rows did not generate:', ex.message) }
+  })()
 }
 
 // The application places each screen at the top itself. Without this line the

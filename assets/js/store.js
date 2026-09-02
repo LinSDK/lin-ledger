@@ -8,7 +8,7 @@
 // ============================================================================
 
 import { supabase, unwrap } from './supabase.js'
-import { cents, toDb, configureMoney } from './money.js'
+import { cents, toDb, configureMoney, apportion } from './money.js'
 import * as D from './dates.js'
 import { GENERATE_MONTHS } from './config.js'
 import { buildEvents, project, analyzePeriods } from './projection.js'
@@ -64,9 +64,10 @@ const mapRows = (rows, table) => (rows || []).map(r => toCents(r, table))
  * function orders each day by the clock. D.compareWhen holds that rule, and
  * dates.js owns it because the test suite reads that file.
  *
- * The sort happens here and not in the query, because a browser that reaches a
- * database without the occurred_time column would get an error from the query
- * and no data at all. A missing field only makes the comparator fall back.
+ * The sort happens here and not in the query, because the clock is not a column
+ * of its own. It is the time of day inside created_at, and only when that day
+ * is the day of occurred_on. No query can express that guard, and dates.clockOf
+ * can.
  */
 export const sortByWhen = rows => rows.slice().sort(D.compareWhen)
 
@@ -211,6 +212,71 @@ function defaultProfile () {
 }
 
 // ---------------------------------------------------------------------------
+// Divide "Transpo & Food" into Transportation and Food
+// ---------------------------------------------------------------------------
+
+/** Matches the one name that the workbook used, and nothing else. */
+const OLD_PAIR = /^transpo\s*(?:&|and)\s*food$/i
+
+/**
+ * Turns the one category of the workbook into the two that it always was.
+ *
+ * A fare and a meal are two different decisions, therefore they belong in two
+ * categories. The workbook held one, with the name "Transpo & Food".
+ *
+ * The order of the two writes matters. The rename comes first, and the new row
+ * comes second. Every movement that already exists points at the old row by its
+ * id, therefore the rename carries all of those movements into Food and nothing
+ * has to move. A new row plus a re-tag of every movement would reach the same
+ * place, but it would send one request for each movement and it could stop half
+ * way.
+ *
+ * Transportation takes the sort order of the old row and Food takes the next
+ * one, therefore the pair reads in the order of the name that they came from.
+ * The rows that sat after the old one move down by one to make the room.
+ *
+ * The allowance divides in two with apportion, therefore the two halves add up
+ * to the old amount to the centavo and the forecast gives the same figures as
+ * before.
+ *
+ * This function runs at each start and it acts one time. After the rename no
+ * row carries the old name, therefore the first test below sends it home. That
+ * is what lets the application do this itself, with no SQL file for a person to
+ * run.
+ */
+export async function ensureCategorySplit () {
+  const old = state.categories.find(c => c.kind === 'expense' && OLD_PAIR.test(c.name.trim()))
+  if (!old) return null
+  if (state.categories.some(c => c.name.trim().toLowerCase() === 'transportation')) {
+    return null
+  }
+
+  const base = old.sort_order ?? 0
+  const [forTransport, forFood] = old.budget_amount
+    ? apportion(old.budget_amount, [1, 1])
+    : [null, null]
+
+  // Make room for the second of the two rows.
+  const below = state.categories.filter(c => (c.sort_order ?? 0) > base)
+  for (const c of below) {
+    await updateRow('categories', c.id, { sort_order: (c.sort_order ?? 0) + 1 })
+  }
+
+  // The rename. Every movement of the old category is now a movement of Food.
+  await updateRow('categories', old.id, {
+    name: 'Food', icon: '🍽️', sort_order: base + 1, budget_amount: forFood,
+  })
+
+  await insertRow('categories', {
+    name: 'Transportation', kind: 'expense', group_name: old.group_name,
+    budget_amount: forTransport, budget_basis: old.budget_basis,
+    is_variable: true, color: '#0ea5e9', icon: '🚌', sort_order: base,
+  })
+
+  return { food: forFood, transportation: forTransport }
+}
+
+// ---------------------------------------------------------------------------
 // Make the bill rows that a recurring rule reaches
 // ---------------------------------------------------------------------------
 
@@ -343,64 +409,15 @@ export function buildProjection (options = {}) {
 
 const withUser = row => ({ ...row, user_id: state.user.id })
 
-// ---------------------------------------------------------------------------
-// A database that does not hold occurred_time yet
-// ---------------------------------------------------------------------------
-
-/**
- * The clock of a movement lives in transactions.occurred_time, and
- * sql/06_time_emoji_split.sql adds that column. A person who takes the new
- * files but does not run that file yet would lose every save, because the
- * database would refuse a column that it does not hold.
- *
- * Therefore each write tries once with the clock. If the database says that
- * the column is not there, the write happens again without the clock and the
- * application says what is missing. The money is then correct, and only the
- * clock is absent.
- */
-export const schema = { hasTime: true, warned: false }
-
-const missingTimeColumn = error =>
-  /occurred_time/i.test(error?.message || '')
-  && /column|schema|does not exist|could not find/i.test(error?.message || '')
-
-function dropTime (value) {
-  if (Array.isArray(value)) return value.map(dropTime)
-  const { occurred_time, ...rest } = value
-  return rest
-}
-
-function warnAboutTime () {
-  schema.hasTime = false
-  if (schema.warned) return
-  schema.warned = true
-  console.warn(
-    'transactions.occurred_time is not in the database, therefore this '
-    + 'movement carries no clock. Run sql/06_time_emoji_split.sql from the '
-    + 'setup folder to add it.')
-}
-
-/** Runs a write, and runs it again without the clock if the column is absent. */
-async function writeWithTime (payload, run) {
-  const first = schema.hasTime ? payload : dropTime(payload)
-  const result = await run(first)
-  if (!result.error) return unwrap(result)
-  if (!missingTimeColumn(result.error)) return unwrap(result)
-  warnAboutTime()
-  return unwrap(await run(dropTime(payload)))
-}
-
 async function insertRow (table, row) {
-  const payload = toNumeric(withUser(row), table)
-  const data = await writeWithTime(payload,
-    p => supabase.from(table).insert(p).select().single())
+  const data = unwrap(await supabase.from(table)
+    .insert(toNumeric(withUser(row), table)).select().single())
   return toCents(data, table)
 }
 
 async function updateRow (table, id, patch) {
-  const payload = toNumeric(patch, table)
-  const data = await writeWithTime(payload,
-    p => supabase.from(table).update(p).eq('id', id).select().single())
+  const data = unwrap(await supabase.from(table)
+    .update(toNumeric(patch, table)).eq('id', id).select().single())
   return toCents(data, table)
 }
 
@@ -436,7 +453,8 @@ export async function setAccountBalance (accountId, targetCents, note) {
   if (diff === 0) return null
   return insertRow('transactions', {
     account_id: accountId, category_id: null, type: 'adjustment',
-    amount: diff, occurred_on: D.today(), occurred_time: D.nowTime(),
+    amount: diff, occurred_on: D.today(),
+    created_at: D.withClock(D.today(), D.nowTime()),
     description: note || 'Balance set by hand',
   })
 }
@@ -459,8 +477,7 @@ export const createTransaction = row => insertRow('transactions', row)
 export async function createTransactions (rows) {
   if (!rows.length) return []
   const payload = rows.map(r => toNumeric(withUser(r), 'transactions'))
-  const data = await writeWithTime(payload,
-    p => supabase.from('transactions').insert(p).select())
+  const data = unwrap(await supabase.from('transactions').insert(payload).select())
   return mapRows(data, 'transactions')
 }
 export const updateTransaction = (id, patch) => updateRow('transactions', id, patch)
@@ -471,16 +488,16 @@ export async function createTransfer ({ fromId, toId, amount, date, note }) {
   const group = crypto.randomUUID()
   const when = date || D.today()
   const cat = categoryByName('Transfer')?.id ?? null
-  const clock = D.nowTime()
+  const stamp = D.withClock(when, D.nowTime())
   await insertRow('transactions', {
     account_id: fromId, category_id: cat, type: 'transfer_out',
-    amount: -Math.abs(amount), occurred_on: when, occurred_time: clock,
+    amount: -Math.abs(amount), occurred_on: when, created_at: stamp,
     description: note || 'Transfer',
     transfer_group: group, group_kind: 'transfer',
   })
   await insertRow('transactions', {
     account_id: toId, category_id: cat, type: 'transfer_in',
-    amount: Math.abs(amount), occurred_on: when, occurred_time: clock,
+    amount: Math.abs(amount), occurred_on: when, created_at: stamp,
     description: note || 'Transfer',
     transfer_group: group, group_kind: 'transfer',
   })
@@ -576,7 +593,7 @@ export async function payBill (bill, { amount, date, accountId }) {
     account_id: accountId || bill.account_id,
     category_id: bill.category_id,
     type: 'expense', amount: -paid, occurred_on: when,
-    occurred_time: D.nowTime(), description: bill.name,
+    created_at: D.withClock(when, D.nowTime()), description: bill.name,
   })
   return updateRow('scheduled_payments', bill.id, {
     status: 'paid', actual_amount: paid, paid_on: when, transaction_id: tx.id,
@@ -622,7 +639,7 @@ export async function payInstallment (row, { amount, date, accountId }) {
     account_id: accountId || loan?.account_id,
     category_id: loan?.category_id ?? categoryByName('Debt Payment')?.id ?? null,
     type: 'expense', amount: -paid, occurred_on: when,
-    occurred_time: D.nowTime(),
+    created_at: D.withClock(when, D.nowTime()),
     description: `${loan?.name ?? 'Loan'} #${row.installment_no}`,
   })
   const updated = await updateRow('loan_payments', row.id, {
@@ -662,7 +679,8 @@ export async function applyPayoff (loan, quote, { accountId, date }) {
     account_id: accountId || loan.account_id,
     category_id: loan.category_id ?? categoryByName('Debt Payment')?.id ?? null,
     type: 'expense', amount: -Math.abs(quote.amount), occurred_on: when,
-    occurred_time: D.nowTime(), description: `${loan.name} closed early`,
+    created_at: D.withClock(when, D.nowTime()),
+    description: `${loan.name} closed early`,
   })
 
   const open = paymentsOfLoan(loan.id)
@@ -697,7 +715,8 @@ export async function receivePayroll (event, { amount, date, accountId }) {
     account_id: accountId || event.account_id || state.profile.payroll_account_id,
     category_id: categoryByName('Payroll')?.id ?? null,
     type: 'income', amount: got, occurred_on: when,
-    occurred_time: D.nowTime(), description: event.label || 'Payroll',
+    created_at: D.withClock(when, D.nowTime()),
+    description: event.label || 'Payroll',
   })
   return updateRow('payroll_events', event.id, {
     status: 'received', actual_amount: got, actual_date: when, transaction_id: tx.id,

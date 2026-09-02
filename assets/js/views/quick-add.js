@@ -21,7 +21,7 @@
 
 import * as store from '../store.js'
 import { fmt, parseMoney } from '../money.js'
-import { today, nowTime } from '../dates.js'
+import { today, nowTime, withClock } from '../dates.js'
 import { openSheet, icon, esc, toast, qs, qsa, delegate, confirmSheet, h }
   from '../ui.js'
 
@@ -118,7 +118,7 @@ export function openQuickAdd (defaults = {}) {
           <div class="field">
             <label for="a-time-${n}">Time</label>
             <input id="a-time-${n}" class="inp" type="time" data-time
-                   value="${esc(values.occurred_time || nowTime())}">
+                   value="${esc(values.clock || nowTime())}">
           </div>
         </div>
 
@@ -163,14 +163,16 @@ export function openQuickAdd (defaults = {}) {
     const received = qs('[data-received]', node).checked
     const amount = parseMoney(qs('[data-amount]', node).value)
     if (amount === null || Math.abs(amount) === 0) return null
-    const time = qs('[data-time]', node).value
+    const on = qs('[data-date]', node).value || today()
     return {
       type: received ? 'income' : 'expense',
       amount: Math.abs(amount),
       account_id: qs('[data-acct]', node).value,
       category_id: qs('[data-cat]', node).value || null,
-      occurred_on: qs('[data-date]', node).value || today(),
-      occurred_time: time || null,
+      occurred_on: on,
+      // The clock is the time of day inside created_at. dates.js holds that
+      // rule, and this is the only place in the sheet that touches it.
+      created_at: withClock(on, qs('[data-time]', node).value),
       description: qs('[data-desc]', node).value.trim() || null,
     }
   }
@@ -264,21 +266,13 @@ export function openQuickAdd (defaults = {}) {
         // application uses. Therefore a balance can never drift.
         amount: l.type === 'income' ? l.amount : -l.amount,
         occurred_on: l.occurred_on,
-        occurred_time: l.occurred_time,
+        created_at: l.created_at,
         description: l.description,
       }))
       const made = await store.createTransactions(rows)
       await store.refresh()
       realClose()
       toast(`${made.length} ${made.length === 1 ? 'movement' : 'movements'} saved.`, 'ok')
-
-      // The database can be older than these files. store.js then writes the
-      // movement without its clock, and the money is still correct. A person
-      // who typed a time deserves to know why it did not keep.
-      if (!store.schema.hasTime) {
-        toast('The clock did not keep. Run sql/06_time_emoji_split.sql on your '
-              + 'database to add it.', 'error', 8000)
-      }
     } catch (ex) {
       button.disabled = false
       button.classList.remove('is-busy')
@@ -314,7 +308,7 @@ export function openQuickAdd (defaults = {}) {
       account_id: qs('[data-acct]', last).value,
       category_id: qs('[data-cat]', last).value,
       occurred_on: qs('[data-date]', last).value,
-      occurred_time: nowTime(),
+      clock: nowTime(),
     })
     const amount = qs('[data-amount]', node)
     node.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
@@ -372,7 +366,7 @@ export function openQuickAdd (defaults = {}) {
     account_id: defaults.account_id || accounts[0].id,
     category_id: defaults.category_id || '',
     occurred_on: defaults.occurred_on || today(),
-    occurred_time: defaults.occurred_time || nowTime(),
+    clock: defaults.clock || nowTime(),
     description: defaults.description || '',
   })
 

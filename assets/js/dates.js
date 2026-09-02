@@ -158,29 +158,68 @@ export function fmtRelative (iso, from = today()) {
   return late < 14 ? `${late} days late` : `${Math.round(late / 7)} weeks late`
 }
 
-// --- the order that things happened in ---------------------------------------
+// --- the clock of a movement, and the order that things happened in ----------
+
+/*
+ * The database holds no column for a clock, and this application asks for no
+ * change to the database. Therefore the clock lives in created_at, which every
+ * row already carries.
+ *
+ * The pair of functions below is the whole rule. Nothing else in the
+ * application reads created_at for a clock, therefore the rule has one home.
+ */
+
+/**
+ * The clock of a movement, as "HH:MM", or null when it has none.
+ *
+ * The rule carries one guard: a clock counts only when the local day of
+ * created_at is the same day as occurred_on. Two kinds of row fail that guard.
+ * A row that an importer wrote carries the instant of the import, and a row
+ * that a person back dated carries the instant of the typing. Neither instant
+ * says anything about the purchase, therefore the guard drops it and the row
+ * shows no clock at all. A wrong clock reads as a fact. An absent clock does
+ * not.
+ *
+ * A row that this application writes always passes the guard, because
+ * withClock builds created_at out of occurred_on.
+ */
+export function clockOf (row) {
+  if (!row || !row.created_at || !isValid(row.occurred_on)) return null
+  const d = new Date(row.created_at)
+  if (Number.isNaN(d.getTime())) return null
+  if (ymd(d.getFullYear(), d.getMonth() + 1, d.getDate()) !== row.occurred_on) return null
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+/**
+ * The created_at value that carries one date and one clock.
+ *
+ * The date and the clock are both local, because the person typed both of them
+ * on a local keyboard. The result is an instant, therefore clockOf gives the
+ * same clock back on the same device.
+ */
+export function withClock (occurredOn, hhmm) {
+  if (!isValid(occurredOn)) return null
+  const { y, m, d } = parts(occurredOn)
+  const [h, min] = (isValidTime(hhmm) ? hhmm : nowTime()).split(':').map(Number)
+  return new Date(y, m - 1, d, h, min, 0, 0).toISOString()
+}
 
 /**
  * Orders two movements, with the newest first.
  *
- * A movement carries a date, and a date holds no clock. Therefore this
- * comparator reads three fields in order:
- *
- *   1. occurred_on    the day
- *   2. occurred_time  the clock inside that day
- *   3. created_at     when the row reached the database
- *
- * A row with no clock goes after every row of the same day that has one. Rows
- * that came before the clock column existed carry no time, therefore they sit
- * at the end of their day instead of jumping to the front of it.
+ * It reads three things in order: the day, then the clock inside that day, then
+ * the instant that the row reached the database. A row with no clock goes after
+ * every row of the same day that has one, therefore an imported row sits at the
+ * end of its day instead of jumping to the front of it.
  *
  * The rule lives here and not in a screen, because two screens show this list
  * and a second copy of the rule would drift from the first.
  */
 export function compareWhen (a, b) {
   if (a.occurred_on !== b.occurred_on) return a.occurred_on < b.occurred_on ? 1 : -1
-  const ta = a.occurred_time || ''
-  const tb = b.occurred_time || ''
+  const ta = clockOf(a) || ''
+  const tb = clockOf(b) || ''
   if (ta !== tb) {
     if (!ta) return 1                 // no clock goes after a known clock
     if (!tb) return -1
