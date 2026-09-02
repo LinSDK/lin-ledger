@@ -7,7 +7,7 @@
 // data must always be fresh.
 // ============================================================================
 
-const CACHE = 'lin-ledger-v2'
+const CACHE = 'lin-ledger-v3'
 
 const SHELL = [
   './', './index.html', './manifest.webmanifest',
@@ -16,13 +16,14 @@ const SHELL = [
   './assets/js/auth.js', './assets/js/store.js', './assets/js/money.js',
   './assets/js/dates.js', './assets/js/amortize.js', './assets/js/projection.js',
   './assets/js/charts.js', './assets/js/ui.js', './assets/js/remind.js',
+  './assets/js/emoji.js',
   './assets/js/views/home.js', './assets/js/views/bills.js',
   './assets/js/views/loans.js', './assets/js/views/stats.js',
   './assets/js/views/more.js', './assets/js/views/accounts.js',
-  './assets/js/views/categories.js', './assets/js/views/payroll.js',
-  './assets/js/views/scenarios.js', './assets/js/views/settings.js',
-  './assets/js/views/actions.js', './assets/js/views/quick-add.js',
-  './assets/js/views/batch-add.js',
+  './assets/js/views/account.js', './assets/js/views/categories.js',
+  './assets/js/views/payroll.js', './assets/js/views/scenarios.js',
+  './assets/js/views/settings.js', './assets/js/views/actions.js',
+  './assets/js/views/quick-add.js', './assets/js/views/tx-list.js',
 ]
 
 self.addEventListener('install', event => {

@@ -6,7 +6,7 @@
 // any folder and from any static host.
 // ============================================================================
 
-import { APP_NAME, APP_VERSION } from './config.js'
+import { APP_NAME, APP_VERSION, COOKIE_DAYS } from './config.js'
 import { supabase, COOKIES_AVAILABLE, sessionStoreName } from './supabase.js'
 import { signIn, signOut, currentSession, onAuthChange } from './auth.js'
 import * as store from './store.js'
@@ -21,6 +21,7 @@ import * as loans     from './views/loans.js'
 import * as stats     from './views/stats.js'
 import * as more      from './views/more.js'
 import * as accounts  from './views/accounts.js'
+import * as account   from './views/account.js'
 import * as categories from './views/categories.js'
 import * as payroll   from './views/payroll.js'
 import * as scenarios from './views/scenarios.js'
@@ -39,6 +40,7 @@ const ROUTES = [
   { path: 'stats',      view: stats,      title: 'Statistics',      tab: 'stats' },
   { path: 'more',       view: more,       title: 'More',            tab: 'more'  },
   { path: 'accounts',   view: accounts,   title: 'Accounts',        tab: 'more', back: '#/more' },
+  { path: 'account',    view: account,    title: 'Account',         tab: 'home', back: '#/home' },
   { path: 'categories', view: categories, title: 'Categories',      tab: 'more', back: '#/more' },
   { path: 'payroll',    view: payroll,    title: 'Payroll',         tab: 'more', back: '#/more' },
   { path: 'scenarios',  view: scenarios,  title: 'What if',          tab: 'more', back: '#/more' },
@@ -94,7 +96,8 @@ function renderLogin (root, message = '') {
 
         <p class="login-note">
           ${COOKIES_AVAILABLE
-            ? 'This browser keeps you signed in with a cookie for 30 days.'
+            ? `This browser keeps you signed in for ${COOKIE_DAYS} days, and the
+               count starts again on each visit.`
             : 'This page cannot write a cookie. Open the application through a '
               + 'local server to keep the cookie. The session goes to '
               + 'localStorage now.'}

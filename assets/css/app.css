@@ -786,35 +786,13 @@ textarea.inp { min-height: 70px; resize: vertical; line-height: 1.45; }
 
 .payoff-form { display: flex; flex-direction: column; gap: 12px; }
 
-/* --- add several movements ------------------------------------------------ */
+/* --- what the Add sheet does to each account ------------------------------ */
 
-.batch-entry { display: flex; flex-direction: column; gap: 11px;
-               padding-bottom: 12px; border-bottom: 1px solid var(--line); }
-.batch-line { display: flex; gap: 9px; align-items: flex-end; }
-.batch-amount { flex: 1; }
-.batch-add-btn { flex: 0 0 auto; min-width: 104px; }
-
-.batch-list { display: flex; flex-direction: column; }
-.batch-list-head { display: flex; align-items: center; justify-content: space-between;
-                   gap: 8px; padding: 12px 2px 6px; font-size: .78rem;
-                   font-weight: 650; color: var(--text-2);
-                   text-transform: uppercase; letter-spacing: .04em; }
-.batch-empty { font-size: .82rem; color: var(--text-3); line-height: 1.5;
-               padding: 10px 11px; border-radius: var(--r-sm);
-               background: var(--bg-3); }
-.batch-row { display: flex; align-items: center; gap: 9px; padding: 9px 2px;
-             border-bottom: 1px solid var(--line); }
-.batch-row:last-child { border-bottom: 0; }
-.batch-row .dot { width: 8px; height: 8px; flex: 0 0 auto; }
-.batch-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.batch-row-title { font-size: .89rem; font-weight: 550; overflow: hidden;
-                   text-overflow: ellipsis; white-space: nowrap; }
-.batch-row-sub { font-size: .74rem; color: var(--text-2); }
-.batch-row-amt { font-size: .92rem; font-weight: 650;
-                 font-variant-numeric: tabular-nums; flex: 0 0 auto; }
-.batch-del { width: 34px; height: 34px; flex: 0 0 auto; color: var(--text-3); }
-.batch-del:hover { color: var(--bad); }
-
+/*
+ * The per account lines matter more than the total. A person sees that one
+ * account falls below zero while the total still looks safe, and that is the
+ * fault that a single total would hide.
+ */
 .batch-sums { display: flex; flex-direction: column; gap: 9px; padding-top: 11px;
               border-top: 1px solid var(--line); }
 .batch-accts { display: flex; flex-direction: column; gap: 5px; }
@@ -824,42 +802,145 @@ textarea.inp { min-height: 70px; resize: vertical; line-height: 1.45; }
 .batch-acct span:nth-child(2) { font-variant-numeric: tabular-nums; font-weight: 650; }
 .batch-acct span:nth-child(3) { font-size: .72rem; }
 
-/* --- one event across several accounts ------------------------------------ */
+/* --- the account cards of the home screen -------------------------------- */
 
-.split-legs { display: flex; flex-direction: column; gap: 8px;
-              padding: 11px; border-radius: var(--r-sm); background: var(--bg-3); }
-.split-legs-head { display: flex; align-items: baseline; justify-content: space-between;
-                   gap: 8px; font-size: .72rem; font-weight: 650; color: var(--text-2);
-                   text-transform: uppercase; letter-spacing: .04em; }
-.split-leg { display: grid; gap: 6px; align-items: center;
-             grid-template-columns: minmax(0, 1fr) auto 34px;
-             grid-template-areas: "acct dir del" "amt amt amt"; }
-.split-leg-acct { grid-area: acct; min-height: 40px; padding: 8px 30px 8px 10px;
-                  background-size: 16px; }
-.split-leg-dir { grid-area: dir; padding: 2px; background: var(--bg-2); }
-.split-leg-dir .seg { min-height: 34px; padding: 5px 12px; font-size: .78rem; }
-.split-leg-amt { grid-area: amt; min-height: 42px; }
-.split-leg-del { grid-area: del; width: 34px; height: 34px; color: var(--text-3); }
-.split-leg-del:hover:not(:disabled) { color: var(--bad); }
-.split-leg-del:disabled { opacity: .3; pointer-events: none; }
-.split-leg + .split-leg { padding-top: 8px; border-top: 1px solid var(--line); }
-
-@media (min-width: 520px) {
-  .split-leg { grid-template-columns: minmax(0, 1fr) auto minmax(110px, 140px) 34px;
-               grid-template-areas: "acct dir amt del"; }
-  .split-leg + .split-leg { padding-top: 6px; }
+.acct-grid {
+  display: grid; gap: 9px;
+  grid-template-columns: repeat(auto-fill, minmax(146px, 1fr));
 }
 
-.split-sum { display: flex; flex-direction: column; gap: 8px; padding: 11px;
+.acct-card {
+  position: relative; display: flex; flex-direction: column; gap: 2px;
+  padding: 12px; text-align: left;
+  background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: var(--r); box-shadow: var(--shadow); overflow: hidden;
+}
+.acct-card.is-off { border-style: dashed; }
+.acct-card.is-off .acct-value { opacity: .62; }
+
+/* The mark sits above the card, therefore a tap on it never opens the account. */
+.acct-emoji {
+  position: absolute; top: 8px; right: 8px; z-index: 1;
+  width: 34px; height: 34px; border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.15rem; line-height: 1; background: var(--bg-3);
+  border: 1px solid transparent;
+}
+.acct-emoji:hover { border-color: var(--line-2); background: var(--accent-2); }
+.acct-emoji:active { transform: scale(.94); }
+.acct-emoji-sm { position: static; width: 30px; height: 30px; font-size: 1.02rem;
+                 flex: 0 0 auto; }
+
+.acct-open { display: flex; flex-direction: column; gap: 2px; text-align: left;
+             padding-right: 38px; }
+.acct-name { font-size: .84rem; font-weight: 600; color: var(--text-2);
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-value { font-size: 1.3rem; font-weight: 700; letter-spacing: -.01em;
+              font-variant-numeric: tabular-nums; }
+
+.acct-add { align-items: flex-start; border-style: dashed; box-shadow: none;
+            background: var(--bg-3); }
+.acct-add:active { background: var(--bg-2); }
+.acct-add-mark { display: flex; align-items: center; justify-content: center;
+                 width: 30px; height: 30px; border-radius: 8px; margin-bottom: 4px;
+                 background: var(--accent-2); color: var(--accent); }
+.acct-add-mark .ic { width: 18px; height: 18px; }
+
+/* --- one account --------------------------------------------------------- */
+
+.acct-hero { flex-direction: row; align-items: center; gap: 13px; }
+.acct-hero-emoji {
+  width: 58px; height: 58px; flex: 0 0 auto; border-radius: 15px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.9rem; line-height: 1;
+  background: var(--bg-2); border: 1px solid var(--line);
+}
+.acct-hero-emoji:active { transform: scale(.95); }
+.acct-hero-text { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.acct-hero .hero-value { font-size: 1.95rem; }
+
+.acct-cats { display: flex; flex-direction: column; gap: 7px; }
+.acct-cat { display: grid; gap: 9px; align-items: center;
+            grid-template-columns: minmax(84px, 1.1fr) minmax(0, 1fr) auto; }
+.acct-cat-name { font-size: .82rem; display: flex; align-items: center; gap: 6px;
+                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-cat-track { height: 7px; border-radius: 4px; background: var(--bg-3);
+                  overflow: hidden; }
+.acct-cat-fill { display: block; height: 100%; border-radius: 4px; }
+.acct-cat-val { font-size: .82rem; font-weight: 650;
+                font-variant-numeric: tabular-nums; }
+
+/* --- the emoji picker ---------------------------------------------------- */
+
+.emoji-now { display: flex; align-items: center; gap: 11px; padding: 11px;
              border-radius: var(--r-sm); background: var(--bg-3); }
-.split-net { display: flex; align-items: baseline; justify-content: space-between;
-             gap: 9px; }
-.split-net span { font-size: .72rem; font-weight: 650; color: var(--text-2);
-                  text-transform: uppercase; letter-spacing: .04em; }
-.split-net strong { font-size: 1.5rem; font-weight: 700;
-                    font-variant-numeric: tabular-nums; }
-.split-msg { font-size: .82rem; line-height: 1.5; }
-.split-sum .batch-acct { background: var(--bg-2); }
+.emoji-now-mark { font-size: 2rem; line-height: 1; }
+.emoji-now-text { font-size: .92rem; font-weight: 600; }
+
+.emoji-group { display: flex; flex-direction: column; gap: 6px; }
+.emoji-group-head { font-size: .7rem; font-weight: 650; color: var(--text-2);
+                    text-transform: uppercase; letter-spacing: .04em; }
+.emoji-grid { display: grid; gap: 6px;
+              grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); }
+.emoji-btn { height: 44px; border-radius: 10px; font-size: 1.35rem; line-height: 1;
+             background: var(--bg-3); border: 1px solid transparent; }
+.emoji-btn:hover { background: var(--accent-2); border-color: var(--line-2); }
+.emoji-btn:active { transform: scale(.92); }
+.emoji-btn.is-on { border-color: var(--accent); background: var(--accent-2); }
+
+.emoji-own { display: flex; gap: 8px; }
+.emoji-own .inp { flex: 1; font-size: 1.25rem; text-align: center; }
+.emoji-own .btn { flex: 0 0 auto; }
+
+/* --- the Add sheet ------------------------------------------------------- */
+
+.add-rows { display: flex; flex-direction: column; gap: 11px; }
+
+/*
+ * One form for each movement. The copy carries the same shape as the form
+ * above it, therefore a person reads a stack and not a new screen.
+ */
+.add-entry {
+  display: flex; flex-direction: column; gap: 11px;
+  padding: 11px 12px 13px; border-radius: var(--r-sm);
+  background: var(--bg-2); border: 1px solid var(--line);
+}
+.add-entry-head { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+.add-entry-no {
+  display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
+  width: 22px; height: 22px; border-radius: 7px;
+  background: var(--accent-2); color: var(--accent);
+  font-size: .72rem; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.add-entry-head .add-entry-del { margin-left: auto; }
+.add-entry-del { width: 32px; height: 32px; flex: 0 0 auto; color: var(--text-3); }
+.add-entry-del:hover:not(:disabled) { color: var(--bad); }
+.add-entry-del:disabled { opacity: .28; pointer-events: none; }
+
+/* The tick sits beside the amount, because the two answer one question. */
+.add-line { display: flex; gap: 10px; align-items: flex-end; }
+.add-amount { flex: 1; min-width: 0; }
+.add-amount .inp { font-size: 1.15rem; min-height: 48px; }
+.add-amount .inp.is-out { color: var(--bad); }
+.add-amount .inp.is-in { color: var(--ok); }
+
+.add-kind { display: flex; flex-direction: column; align-items: center; gap: 4px;
+            flex: 0 0 auto; min-height: 48px; justify-content: center;
+            cursor: pointer; padding: 0 2px; }
+.add-kind input { position: absolute; opacity: 0; width: 0; height: 0; }
+.add-kind .switch-track { width: 42px; height: 24px; }
+.add-kind .switch-knob { width: 18px; height: 18px; }
+.add-kind input:checked + .switch-track { background: var(--ok); }
+.add-kind input:checked + .switch-track .switch-knob { transform: translateX(18px); }
+.add-kind input:focus-visible + .switch-track { outline: 2px solid var(--accent);
+                                                outline-offset: 2px; }
+.add-kind-text { font-size: .7rem; font-weight: 650; color: var(--text-2);
+                 text-transform: uppercase; letter-spacing: .03em; }
+.add-kind input:checked ~ .add-kind-text { color: var(--ok); }
+
+/* The clock of a movement. A row with no clock shows nothing here. */
+.tx-time { font-size: .68rem; color: var(--text-3); font-variant-numeric: tabular-nums;
+           letter-spacing: .01em; white-space: nowrap; }
 
 /* A split in the movement list shows as one item with its lines under it. */
 .tx-legs { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 6px 26px; }

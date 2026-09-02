@@ -57,6 +57,19 @@ function toNumeric (row, table) {
 
 const mapRows = (rows, table) => (rows || []).map(r => toCents(r, table))
 
+/**
+ * Puts the movements in the order that they happened, with the newest first.
+ *
+ * The database orders by the date, and a date holds no clock. Therefore this
+ * function orders each day by the clock. D.compareWhen holds that rule, and
+ * dates.js owns it because the test suite reads that file.
+ *
+ * The sort happens here and not in the query, because a browser that reaches a
+ * database without the occurred_time column would get an error from the query
+ * and no data at all. A missing field only makes the comparator fall back.
+ */
+export const sortByWhen = rows => rows.slice().sort(D.compareWhen)
+
 // ---------------------------------------------------------------------------
 // The data that the screens read
 // ---------------------------------------------------------------------------
@@ -97,6 +110,24 @@ export function liquidityAll () {
   return state.balances.filter(b => !b.is_archived).reduce((a, b) => a + b.balance, 0)
 }
 
+/**
+ * Your net worth: every account, added together.
+ *
+ * This figure is not the same as liquidity(). Liquidity leaves out an account
+ * that you marked as outside the forecast, because a jar of coins does not pay
+ * a bill. Net worth leaves nothing out, because a jar of coins is still money
+ * that you own. The home screen shows this figure at the top.
+ */
+export const netWorth = () => liquidityAll()
+
+/** Every movement of one account, with the newest first. */
+export const transactionsOfAccount = accountId =>
+  state.transactions.filter(t => t.account_id === accountId)
+
+/** The balance row of one account. */
+export const balanceOfAccount = accountId =>
+  state.balances.find(b => b.account_id === accountId) ?? null
+
 /** Everything that is still owed on every open loan. */
 export function totalDebt () {
   return state.loanStats
@@ -131,7 +162,7 @@ export async function loadAll () {
       supabase.from('v_account_balances').select('*').order('sort_order').then(unwrap),
       supabase.from('categories').select('*').order('sort_order').then(unwrap),
       supabase.from('transactions').select('*').order('occurred_on', { ascending: false })
-        .limit(2000).then(unwrap),
+        .order('created_at', { ascending: false }).limit(2000).then(unwrap),
       supabase.from('recurring_payments').select('*').order('name').then(unwrap),
       supabase.from('scheduled_payments').select('*').order('due_date').then(unwrap),
       supabase.from('loans').select('*').order('name').then(unwrap),
@@ -147,7 +178,7 @@ export async function loadAll () {
   state.accounts     = mapRows(accounts, 'accounts')
   state.balances     = mapRows(balances, 'v_account_balances')
   state.categories   = mapRows(categories, 'categories')
-  state.transactions = mapRows(transactions, 'transactions')
+  state.transactions = sortByWhen(mapRows(transactions, 'transactions'))
   state.recurring    = mapRows(recurring, 'recurring_payments')
   state.scheduled    = mapRows(scheduled, 'scheduled_payments')
   state.loans        = mapRows(loans, 'loans')
@@ -312,15 +343,64 @@ export function buildProjection (options = {}) {
 
 const withUser = row => ({ ...row, user_id: state.user.id })
 
+// ---------------------------------------------------------------------------
+// A database that does not hold occurred_time yet
+// ---------------------------------------------------------------------------
+
+/**
+ * The clock of a movement lives in transactions.occurred_time, and
+ * sql/06_time_emoji_split.sql adds that column. A person who takes the new
+ * files but does not run that file yet would lose every save, because the
+ * database would refuse a column that it does not hold.
+ *
+ * Therefore each write tries once with the clock. If the database says that
+ * the column is not there, the write happens again without the clock and the
+ * application says what is missing. The money is then correct, and only the
+ * clock is absent.
+ */
+export const schema = { hasTime: true, warned: false }
+
+const missingTimeColumn = error =>
+  /occurred_time/i.test(error?.message || '')
+  && /column|schema|does not exist|could not find/i.test(error?.message || '')
+
+function dropTime (value) {
+  if (Array.isArray(value)) return value.map(dropTime)
+  const { occurred_time, ...rest } = value
+  return rest
+}
+
+function warnAboutTime () {
+  schema.hasTime = false
+  if (schema.warned) return
+  schema.warned = true
+  console.warn(
+    'transactions.occurred_time is not in the database, therefore this '
+    + 'movement carries no clock. Run sql/06_time_emoji_split.sql from the '
+    + 'setup folder to add it.')
+}
+
+/** Runs a write, and runs it again without the clock if the column is absent. */
+async function writeWithTime (payload, run) {
+  const first = schema.hasTime ? payload : dropTime(payload)
+  const result = await run(first)
+  if (!result.error) return unwrap(result)
+  if (!missingTimeColumn(result.error)) return unwrap(result)
+  warnAboutTime()
+  return unwrap(await run(dropTime(payload)))
+}
+
 async function insertRow (table, row) {
-  const data = unwrap(await supabase.from(table)
-    .insert(toNumeric(withUser(row), table)).select().single())
+  const payload = toNumeric(withUser(row), table)
+  const data = await writeWithTime(payload,
+    p => supabase.from(table).insert(p).select().single())
   return toCents(data, table)
 }
 
 async function updateRow (table, id, patch) {
-  const data = unwrap(await supabase.from(table)
-    .update(toNumeric(patch, table)).eq('id', id).select().single())
+  const payload = toNumeric(patch, table)
+  const data = await writeWithTime(payload,
+    p => supabase.from(table).update(p).eq('id', id).select().single())
   return toCents(data, table)
 }
 
@@ -356,7 +436,7 @@ export async function setAccountBalance (accountId, targetCents, note) {
   if (diff === 0) return null
   return insertRow('transactions', {
     account_id: accountId, category_id: null, type: 'adjustment',
-    amount: diff, occurred_on: D.today(),
+    amount: diff, occurred_on: D.today(), occurred_time: D.nowTime(),
     description: note || 'Balance set by hand',
   })
 }
@@ -379,7 +459,8 @@ export const createTransaction = row => insertRow('transactions', row)
 export async function createTransactions (rows) {
   if (!rows.length) return []
   const payload = rows.map(r => toNumeric(withUser(r), 'transactions'))
-  const data = unwrap(await supabase.from('transactions').insert(payload).select())
+  const data = await writeWithTime(payload,
+    p => supabase.from('transactions').insert(p).select())
   return mapRows(data, 'transactions')
 }
 export const updateTransaction = (id, patch) => updateRow('transactions', id, patch)
@@ -390,14 +471,17 @@ export async function createTransfer ({ fromId, toId, amount, date, note }) {
   const group = crypto.randomUUID()
   const when = date || D.today()
   const cat = categoryByName('Transfer')?.id ?? null
+  const clock = D.nowTime()
   await insertRow('transactions', {
     account_id: fromId, category_id: cat, type: 'transfer_out',
-    amount: -Math.abs(amount), occurred_on: when, description: note || 'Transfer',
+    amount: -Math.abs(amount), occurred_on: when, occurred_time: clock,
+    description: note || 'Transfer',
     transfer_group: group, group_kind: 'transfer',
   })
   await insertRow('transactions', {
     account_id: toId, category_id: cat, type: 'transfer_in',
-    amount: Math.abs(amount), occurred_on: when, description: note || 'Transfer',
+    amount: Math.abs(amount), occurred_on: when, occurred_time: clock,
+    description: note || 'Transfer',
     transfer_group: group, group_kind: 'transfer',
   })
 }
@@ -491,7 +575,8 @@ export async function payBill (bill, { amount, date, accountId }) {
   const tx = await insertRow('transactions', {
     account_id: accountId || bill.account_id,
     category_id: bill.category_id,
-    type: 'expense', amount: -paid, occurred_on: when, description: bill.name,
+    type: 'expense', amount: -paid, occurred_on: when,
+    occurred_time: D.nowTime(), description: bill.name,
   })
   return updateRow('scheduled_payments', bill.id, {
     status: 'paid', actual_amount: paid, paid_on: when, transaction_id: tx.id,
@@ -537,6 +622,7 @@ export async function payInstallment (row, { amount, date, accountId }) {
     account_id: accountId || loan?.account_id,
     category_id: loan?.category_id ?? categoryByName('Debt Payment')?.id ?? null,
     type: 'expense', amount: -paid, occurred_on: when,
+    occurred_time: D.nowTime(),
     description: `${loan?.name ?? 'Loan'} #${row.installment_no}`,
   })
   const updated = await updateRow('loan_payments', row.id, {
@@ -576,7 +662,7 @@ export async function applyPayoff (loan, quote, { accountId, date }) {
     account_id: accountId || loan.account_id,
     category_id: loan.category_id ?? categoryByName('Debt Payment')?.id ?? null,
     type: 'expense', amount: -Math.abs(quote.amount), occurred_on: when,
-    description: `${loan.name} closed early`,
+    occurred_time: D.nowTime(), description: `${loan.name} closed early`,
   })
 
   const open = paymentsOfLoan(loan.id)
@@ -611,7 +697,7 @@ export async function receivePayroll (event, { amount, date, accountId }) {
     account_id: accountId || event.account_id || state.profile.payroll_account_id,
     category_id: categoryByName('Payroll')?.id ?? null,
     type: 'income', amount: got, occurred_on: when,
-    description: event.label || 'Payroll',
+    occurred_time: D.nowTime(), description: event.label || 'Payroll',
   })
   return updateRow('payroll_events', event.id, {
     status: 'received', actual_amount: got, actual_date: when, transaction_id: tx.id,

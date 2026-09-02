@@ -21,6 +21,32 @@ export function today () {
 export const ymd = (y, m, d) =>
   `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 
+/**
+ * The time of now, as "HH:MM" in the zone of the browser.
+ *
+ * A time is a separate value from a date, and it is optional. Every money
+ * calculation reads the date alone, therefore a missing time changes no figure.
+ * The time only puts the movements of one day in the order that they happened.
+ */
+export function nowTime () {
+  const d = new Date()
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+export const isValidTime = t => /^\d{2}:\d{2}(:\d{2})?$/.test(t || '')
+
+/** "14:05" becomes "2:05 pm". An empty value gives an empty string. */
+export function fmtTime (t) {
+  if (!isValidTime(t)) return ''
+  const [h, m] = t.split(':').map(Number)
+  const suffix = h < 12 ? 'am' : 'pm'
+  const hour = h % 12 === 0 ? 12 : h % 12
+  return `${hour}:${String(m).padStart(2, '0')} ${suffix}`
+}
+
+/** The value that a time input needs. It holds "HH:MM" and nothing more. */
+export const toTimeInput = t => (isValidTime(t) ? t.slice(0, 5) : '')
+
 /** "2026-08-24" becomes a UTC Date. */
 export const toDate = iso => new Date(iso + 'T00:00:00Z')
 
@@ -130,6 +156,37 @@ export function fmtRelative (iso, from = today()) {
   if (n > 0) return n < 14 ? `in ${n} days` : `in ${Math.round(n / 7)} weeks`
   const late = -n
   return late < 14 ? `${late} days late` : `${Math.round(late / 7)} weeks late`
+}
+
+// --- the order that things happened in ---------------------------------------
+
+/**
+ * Orders two movements, with the newest first.
+ *
+ * A movement carries a date, and a date holds no clock. Therefore this
+ * comparator reads three fields in order:
+ *
+ *   1. occurred_on    the day
+ *   2. occurred_time  the clock inside that day
+ *   3. created_at     when the row reached the database
+ *
+ * A row with no clock goes after every row of the same day that has one. Rows
+ * that came before the clock column existed carry no time, therefore they sit
+ * at the end of their day instead of jumping to the front of it.
+ *
+ * The rule lives here and not in a screen, because two screens show this list
+ * and a second copy of the rule would drift from the first.
+ */
+export function compareWhen (a, b) {
+  if (a.occurred_on !== b.occurred_on) return a.occurred_on < b.occurred_on ? 1 : -1
+  const ta = a.occurred_time || ''
+  const tb = b.occurred_time || ''
+  if (ta !== tb) {
+    if (!ta) return 1                 // no clock goes after a known clock
+    if (!tb) return -1
+    return ta < tb ? 1 : -1
+  }
+  return String(b.created_at || '').localeCompare(String(a.created_at || ''))
 }
 
 // --- recurrence --------------------------------------------------------------

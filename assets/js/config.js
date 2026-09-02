@@ -27,7 +27,19 @@ export const LOGIN_DOMAIN = 'lin-ledger.local'
 //   lin_ledger_auth.n  = the number of parts
 //   lin_ledger_auth.0  = the first part, and so on
 export const COOKIE_KEY  = 'lin_ledger_auth'
-export const COOKIE_DAYS = 30
+
+// How long the browser keeps the session cookie.
+//
+// The count starts again on each write, and the client library writes the
+// session each time that it refreshes the token. Therefore a person who opens
+// the application inside the window stays signed in without a limit, and only
+// a full window of silence asks for the password again.
+//
+// The server holds the second half of this rule. Supabase must not expire the
+// refresh token before this day count. Open your project, then
+// Authentication > Sessions, and be sure that no inactivity timeout is shorter
+// than this number.
+export const COOKIE_DAYS = 90
 
 // How far forward the application makes bill rows from a recurring rule.
 export const GENERATE_MONTHS = 18

@@ -26,12 +26,49 @@ export function h (html) {
 export const qs = (sel, root = document) => root.querySelector(sel)
 export const qsa = (sel, root = document) => [...root.querySelectorAll(sel)]
 
-/** Attaches one handler to a parent for many children. */
+/**
+ * Attaches one handler to a parent for many children.
+ *
+ * A screen draws itself again after every change, and it writes new HTML into
+ * the same parent element. That element survives the draw, therefore a plain
+ * addEventListener would stay behind and the next draw would add a second one.
+ * After ten draws one tap would run the handler ten times, and ten copies of
+ * the same sheet would open.
+ *
+ * Therefore this function keeps one real listener for each parent and each
+ * event, and it keeps the handlers in a map with the selector as the key. A
+ * second call with the same selector replaces the handler that was there
+ * before. The newest handler is the correct one, because it holds the values
+ * of the newest draw.
+ */
+const delegated = new WeakMap()
+
 export function delegate (root, event, selector, fn) {
-  root.addEventListener(event, e => {
-    const hit = e.target.closest(selector)
-    if (hit && root.contains(hit)) fn(e, hit)
-  })
+  let byEvent = delegated.get(root)
+  if (!byEvent) { byEvent = new Map(); delegated.set(root, byEvent) }
+
+  let handlers = byEvent.get(event)
+  if (!handlers) {
+    handlers = new Map()
+    byEvent.set(event, handlers)
+    root.addEventListener(event, e => {
+      // A copy, because a handler may register or remove another one.
+      for (const [sel, handler] of [...handlers]) {
+        const hit = e.target.closest(sel)
+        if (hit && root.contains(hit)) handler(e, hit)
+      }
+    })
+  }
+
+  handlers.set(selector, fn)
+}
+
+/** Forgets every delegated handler of one parent. */
+export function undelegate (root, event) {
+  const byEvent = delegated.get(root)
+  if (!byEvent) return
+  if (event) byEvent.get(event)?.clear()
+  else for (const handlers of byEvent.values()) handlers.clear()
 }
 
 // ---------------------------------------------------------------------------
@@ -66,6 +103,8 @@ const ICONS = {
   search:  'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14M20 20l-4-4',
   play:    'M7 4l12 8-12 8z',
   save:    'M4 4h12l4 4v12H4zM8 4v6h8V6M8 15h8',
+  swap:    'M4 8h13l-3-3M20 16H7l3 3',
+  wallet2: 'M3 7h15a3 3 0 0 1 3 3v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
 }
 
 export function icon (name, cls = '') {
@@ -188,7 +227,7 @@ export function confirmSheet ({ title, message, confirmLabel = 'Yes', danger = f
  * Each field is:
  *   { name, label, type, hint, required, options, when, min, max, step, rows }
  *
- * Types: text, money, date, number, select, switch, textarea, segment, static
+ * Types: text, money, date, time, number, select, switch, textarea, segment, static
  *
  * "when" is a function that reads the current values and gives true or false.
  * The form hides a field when the answer is false, therefore a form can change
@@ -215,6 +254,10 @@ export function buildForm ({ fields, values = {}, onSubmit, submitLabel = 'Save'
         break
       case 'date':
         control = `<input id="${id}" name="${f.name}" class="inp" type="date"
+          value="${esc(v ?? '')}" ${f.required ? 'required' : ''}>`
+        break
+      case 'time':
+        control = `<input id="${id}" name="${f.name}" class="inp" type="time"
           value="${esc(v ?? '')}" ${f.required ? 'required' : ''}>`
         break
       case 'number':

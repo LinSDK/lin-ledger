@@ -9,7 +9,7 @@ import { icon, esc, card, empty, toast, delegate, qs, formSheet, confirmSheet,
          listRow } from '../ui.js'
 import { signOut } from '../auth.js'
 import { sessionStoreName, sessionCookieInfo, COOKIES_AVAILABLE } from '../supabase.js'
-import { APP_VERSION } from '../config.js'
+import { APP_VERSION, COOKIE_DAYS } from '../config.js'
 import { applyTheme } from '../app.js'
 import * as remind from '../remind.js'
 
@@ -86,7 +86,9 @@ export async function render (host) {
         ? `<p class="note">${icon('info')} A session is larger than the 4 KB that
             one cookie holds, therefore the application divides it into
             ${cookie.parts} ${cookie.parts === 1 ? 'part' : 'parts'}. The cookie
-            lasts 30 days.</p>`
+            lasts ${COOKIE_DAYS} days, and the count starts again each time that
+            the application refreshes the session. Therefore a visit inside that
+            window keeps you signed in without a limit.</p>`
         : `<p class="note">${icon('warn')} This page cannot write a cookie, which
             happens when you open the file directly. The session goes to
             localStorage instead. Open the application through a local server to

@@ -8,7 +8,7 @@
 import * as store from '../store.js'
 import { formSheet, confirmSheet, toast, esc, icon } from '../ui.js'
 import { fmt } from '../money.js'
-import { today, fmtDate } from '../dates.js'
+import { today, toTimeInput, fmtDate, fmtTime } from '../dates.js'
 
 const accountOptions = () => store.state.accounts
   .filter(a => !a.is_archived)
@@ -261,6 +261,104 @@ export function openTransfer () {
 }
 
 // ---------------------------------------------------------------------------
+// Add or change an account
+// ---------------------------------------------------------------------------
+
+export const ACCOUNT_KINDS = [
+  { value: 'bank', label: 'Bank' },
+  { value: 'wallet', label: 'Digital wallet' },
+  { value: 'cash', label: 'Cash' },
+  { value: 'coins', label: 'Coins' },
+  { value: 'savings', label: 'Savings' },
+  { value: 'credit', label: 'Credit' },
+  { value: 'other', label: 'Other' },
+]
+
+export const ACCOUNT_COLORS = ['#0ea5e9', '#22c55e', '#f59e0b', '#ef4444',
+                               '#a855f7', '#6366f1', '#14b8a6', '#64748b']
+
+/**
+ * The sheet that adds an account or changes one.
+ *
+ * Three screens open this sheet: the "+" card of the home screen, the account
+ * screen and the accounts list. It lives here and not in one of those files,
+ * because a form that two screens hold twice becomes two different forms.
+ *
+ * The emoji is not in this form. The card on the home screen changes it with
+ * one tap, and a person who wants a different mark does not want a form.
+ */
+export function openAccountSheet (account, { onDelete } = {}) {
+  const isNew = !account
+  formSheet({
+    title: isNew ? 'Add an account' : `Change ${account.name}`,
+    submitLabel: isNew ? 'Add the account' : 'Save',
+    fields: [
+      { name: 'name', label: 'Name', type: 'text', required: true,
+        placeholder: 'GCash, BDO, Cash, Coins' },
+      { name: 'kind', label: 'Type', type: 'select', options: ACCOUNT_KINDS },
+      { name: 'institution', label: 'Bank or company', type: 'text' },
+      { name: 'opening_balance', label: 'Balance at the start', type: 'money',
+        required: true,
+        hint: isNew ? 'Type what the account holds now.'
+                    : 'Change this only to correct a mistake. To match the bank, '
+                    + 'use "Set the balance" instead.' },
+      { name: 'opening_date', label: 'Date of that balance', type: 'date' },
+      { name: 'color', label: 'Colour', type: 'select',
+        options: ACCOUNT_COLORS.map(c => ({ value: c, label: c })) },
+      { name: 'include_in_liquidity', label: '', type: 'switch',
+        onLabel: 'Count this in the forecast' },
+      { name: 'notes', label: 'Note', type: 'textarea', rows: 2 },
+    ],
+    values: account || {
+      kind: 'wallet', include_in_liquidity: true, opening_balance: 0,
+      opening_date: today(),
+      color: ACCOUNT_COLORS[store.state.accounts.length % ACCOUNT_COLORS.length],
+    },
+    extraFooter: isNew ? '' : `
+      <div class="row-actions">
+        <button type="button" class="btn btn-danger-ghost" data-act="delete">Delete</button>
+      </div>`,
+    onSubmit: async v => {
+      const patch = {
+        name: v.name, kind: v.kind, institution: v.institution,
+        opening_balance: v.opening_balance ?? 0,
+        opening_date: v.opening_date || null,
+        color: v.color, include_in_liquidity: v.include_in_liquidity,
+        notes: v.notes,
+      }
+      if (isNew) {
+        patch.sort_order = store.state.accounts.length + 1
+        await store.createAccount(patch)
+      } else {
+        await store.updateAccount(account.id, patch)
+      }
+      await store.refresh()
+      toast(isNew ? 'The account is added.' : 'The account is saved.', 'ok')
+    },
+    onMount (sheet) {
+      sheet.el.addEventListener('click', async e => {
+        if (!e.target.closest('[data-act="delete"]')) return
+        const ok = await confirmSheet({
+          title: `Delete ${account.name}?`,
+          message: 'Every money movement in this account goes away too. This '
+                 + 'cannot be undone.',
+          confirmLabel: 'Delete', danger: true,
+        })
+        if (!ok) return
+        try {
+          await store.deleteAccount(account.id)
+          sheet.close()
+          await store.refresh()
+          toast('The account is deleted.', 'ok')
+          // The account screen must not stay open with no account behind it.
+          onDelete ? onDelete() : (location.hash = '#/home')
+        } catch (ex) { toast(ex.message, 'error') }
+      })
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
 // A bill that happens one time only
 // ---------------------------------------------------------------------------
 
@@ -324,6 +422,11 @@ export function openEditTransaction (tx) {
       { name: 'amount', label: 'Amount', type: 'money', required: true,
         hint: kind === 'income' ? 'Money that came in.' : 'Money that went out.' },
       { name: 'occurred_on', label: 'Date', type: 'date', required: true },
+      { name: 'occurred_time', label: 'Time', type: 'time',
+        hint: tx.occurred_time
+          ? `Recorded at ${fmtTime(tx.occurred_time)}.`
+          : 'This movement carries no time. Set one to put it in order inside '
+            + 'its day. The date alone decides every money figure.' },
       { name: 'description', label: 'What was it for', type: 'text' },
       { name: 'category_id', label: 'Category', type: 'select',
         options: categoryOptions(isTransfer ? 'all' : kind) },
@@ -331,6 +434,7 @@ export function openEditTransaction (tx) {
     ],
     values: {
       amount: Math.abs(tx.amount), occurred_on: tx.occurred_on,
+      occurred_time: toTimeInput(tx.occurred_time),
       description: tx.description || '', category_id: tx.category_id || '',
       account_id: tx.account_id,
     },
@@ -347,7 +451,9 @@ export function openEditTransaction (tx) {
                    : tx.type === 'adjustment' ? (tx.amount < 0 ? -size : size)
                    : -size
       await store.updateTransaction(tx.id, {
-        amount: signed, occurred_on: v.occurred_on, description: v.description,
+        amount: signed, occurred_on: v.occurred_on,
+        occurred_time: v.occurred_time || null,
+        description: v.description,
         category_id: v.category_id || null, account_id: v.account_id,
       })
       await store.refresh()

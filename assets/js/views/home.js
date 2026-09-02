@@ -1,30 +1,39 @@
 // ============================================================================
 // Lin Ledger : the home screen
 //
-// This screen answers one question: with the money that I hold and the payments
-// that come, am I safe? Everything on the screen serves that question.
+// The screen reads from the top down, and each part answers one question:
+//
+//   Net worth            What do I own?
+//   The account cards    Where does it sit?
+//   Transactions         What already happened?
+//   Until your next pay  Am I safe until the money arrives?
+//   Money over time      What happens after that?
+//   Due, Next pay        What must I do this fortnight?
+//   Largest spending     Where does the money go?
+//
+// The figures at the top are certain. Everything below the transactions is a
+// plan, and a plan can be wrong.
 // ============================================================================
 
 import * as store from '../store.js'
-import { fmt, fmtCompact } from '../money.js'
+import { fmt } from '../money.js'
 import * as D from '../dates.js'
-import { balanceChart, sparkline, attachScrubber, categoryBars } from '../charts.js'
+import { balanceChart, attachScrubber, categoryBars } from '../charts.js'
 import { icon, esc, card, verdictBadge, money, listRow, empty, toast, delegate,
-         confirmSheet, qs, qsa } from '../ui.js'
-import { openPayBill, openPayInstallment, openReceivePayroll, openSetBalance,
-         openEditTransaction } from './actions.js'
-import { VERDICT } from '../projection.js'
+         qs } from '../ui.js'
+import { openPayBill, openPayInstallment, openReceivePayroll,
+         openEditTransaction, openAccountSheet } from './actions.js'
+import { accountEmoji, openEmojiPicker } from '../emoji.js'
+import { makeListState, txListCard, wireTxList } from './tx-list.js'
 
-const KIND_ICON = { bank: 'card', wallet: 'wallet', cash: 'cash', coins: 'coins',
-                    savings: 'card', credit: 'card', other: 'wallet' }
+// The filter and the row count of the transaction list stay between draws.
+const listState = makeListState()
 
 export async function render (host) {
   const st = store.state
   const profile = st.profile
   const now = D.today()
   const proj = store.buildProjection({ from: now })
-  const liquid = store.liquidity()
-  const excluded = store.liquidityAll() - liquid
 
   // The payments of the next 14 days, and anything that is late.
   const soon = proj.events
@@ -39,24 +48,16 @@ export async function render (host) {
   const monthSpend = topCategories(D.startOfMonth(now), now)
 
   host.innerHTML = `
-    ${transactionsCard()}
+    ${netWorthHero()}
 
-    <section class="hero">
-      <p class="hero-label">Money on hand</p>
-      <p class="hero-value ${liquid < 0 ? 'neg' : ''}">${fmt(liquid)}</p>
-      ${excluded !== 0 ? `<p class="hero-note">${fmt(excluded)} more sits in accounts
-        that you left out of the forecast.</p>` : ''}
-      <div class="chips">
-        ${st.balances.filter(b => !b.is_archived).map(b => `
-          <button class="chip ${b.include_in_liquidity ? '' : 'is-off'}"
-                  data-account="${b.account_id}"
-                  title="${b.include_in_liquidity ? 'Counted in the forecast' : 'Left out of the forecast'}">
-            ${icon(KIND_ICON[b.kind] || 'wallet')}
-            <span class="chip-name">${esc(b.name)}</span>
-            <span class="chip-value ${b.balance < 0 ? 'neg' : ''}">${fmt(b.balance)}</span>
-          </button>`).join('')}
-      </div>
-    </section>
+    ${accountCards()}
+
+    ${txListCard({
+      rows: st.transactions,
+      state: listState,
+      title: 'Transactions',
+      extra: `<a class="card-link" href="#/stats">By category ${icon('chevron')}</a>`,
+    })}
 
     ${st.reviews.length ? reviewCard(st.reviews) : ''}
 
@@ -87,7 +88,7 @@ export async function render (host) {
       ${payrollNote(proj)}
     `, `<a class="card-link" href="#/scenarios">What if ${icon('chevron')}</a>`)}
 
-    ${card(`Due in 14 days`, soon.length
+    ${card('Due in 14 days', soon.length
       ? soon.map(rowForEvent).join('')
       : empty('Nothing is due in the next 14 days.'),
       `<a class="card-link" href="#/bills">All bills ${icon('chevron')}</a>`)}
@@ -111,236 +112,76 @@ export async function render (host) {
 }
 
 // ---------------------------------------------------------------------------
-// The pieces
+// Net worth, and where the money sits
 // ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// What you already spent
-// ---------------------------------------------------------------------------
-
-// The filter and the row count stay between draws, therefore the screen does
-// not jump back to the top of the list after you change one movement.
-let txFilter = 'all'
-let txShown = 8
-const TX_STEP = 25
-
-const TX_FILTERS = [
-  { key: 'all',     label: 'All' },
-  { key: 'expense', label: 'Spent' },
-  { key: 'income',  label: 'Received' },
-]
-
-const TX_TYPE_LABEL = {
-  income: 'received', expense: 'spent',
-  transfer_in: 'moved in', transfer_out: 'moved out',
-  adjustment: 'adjustment',
-}
 
 /**
- * Turns the rows into events, newest first.
+ * Your net worth: every account, added together.
  *
- * A purchase that took money from two accounts holds one row for each account.
- * The list must treat those rows as one event, for three reasons: the sum is
- * the true cost, a filter must keep or drop the whole event, and the cut at the
- * end of a page must never divide one event in two.
- *
- * Each event is { key, group, kind, rows, date, net }.
+ * This is the first figure on the screen, because it is the answer to "what do
+ * I own". It leaves no account out. The forecast below uses a smaller figure,
+ * because an account that you marked as outside the forecast holds money that
+ * does not pay a bill. The card says so when the two figures differ.
  */
-function buildEvents () {
-  const out = []
-  const seen = new Map()
-  for (const t of store.state.transactions) {
-    if (!t.transfer_group) {
-      out.push({ key: t.id, group: null, kind: null, rows: [t],
-                 date: t.occurred_on, net: t.amount })
-      continue
-    }
-    const hit = seen.get(t.transfer_group)
-    if (hit) { hit.rows.push(t); hit.net += t.amount; continue }
-    const item = { key: t.transfer_group, group: t.transfer_group,
-                   kind: t.group_kind, rows: [t], date: t.occurred_on,
-                   net: t.amount }
-    seen.set(t.transfer_group, item)
-    out.push(item)
-  }
-  return out
-}
-
-/** The events that the chosen filter keeps. The sum of the event decides. */
-function filteredEvents () {
-  const all = buildEvents()
-  if (txFilter === 'expense') return all.filter(e => e.net < 0)
-  if (txFilter === 'income') return all.filter(e => e.net > 0)
-  return all
-}
-
-/**
- * The list of the money that really moved.
- *
- * This card sits at the top, because it holds the only figures that are
- * certain. Everything below it is a plan.
- *
- * store.js gives the movements with the newest first, therefore this card only
- * groups them by day.
- */
-function transactionsCard () {
-  const events = filteredEvents()
-  const shown = events.slice(0, txShown)
-  const spent = events.filter(e => e.net < 0).reduce((a, e) => a - e.net, 0)
-  const got = events.filter(e => e.net > 0).reduce((a, e) => a + e.net, 0)
-
-  const body = events.length === 0
-    ? empty(txFilter === 'income'
-        ? 'You have recorded no money that came in.'
-        : txFilter === 'expense'
-          ? 'You have recorded no spending yet.'
-          : 'You have recorded no money movement yet. Use the + button to add one.')
-    : groupTxByDay(shown, events) + `
-      <div class="tx-foot">
-        <span class="hint">
-          ${shown.length} of ${events.length}
-          ${events.length === 1 ? 'movement' : 'movements'}
-        </span>
-        ${events.length > shown.length ? `
-          <button class="btn btn-ghost btn-sm" data-tx-more>
-            Show ${Math.min(TX_STEP, events.length - shown.length)} more</button>` : ''}
-        ${txShown > 8 ? `
-          <button class="btn btn-ghost btn-sm" data-tx-less>Show fewer</button>` : ''}
-      </div>`
+function netWorthHero () {
+  const worth = store.netWorth()
+  const liquid = store.liquidity()
+  const excluded = worth - liquid
 
   return `
-  <section class="card card-tx">
-    <header class="card-head">
-      <h3>What you already spent</h3>
-      <a class="card-link" href="#/stats">By category ${icon('chevron')}</a>
-    </header>
-    <div class="card-body">
-      <div class="tx-sums">
-        <span class="neg">${fmt(spent)} out</span>
-        <span class="pos">${fmt(got)} in</span>
-        <span class="${got - spent < 0 ? 'neg' : 'pos'}">${fmt(got - spent)} net</span>
-      </div>
-      <div class="segment">
-        ${TX_FILTERS.map(f => `
-          <button class="seg ${f.key === txFilter ? 'is-on' : ''}"
-                  data-tx-filter="${f.key}">${f.label}</button>`).join('')}
-      </div>
-      ${body}
-    </div>
-  </section>`
+    <section class="hero">
+      <p class="hero-label">Net worth</p>
+      <p class="hero-value ${worth < 0 ? 'neg' : ''}">${fmt(worth)}</p>
+      <p class="hero-note">
+        ${excluded !== 0
+          ? `${fmt(liquid)} of this counts in the forecast.
+             ${fmt(excluded)} sits in accounts that you left out.`
+          : 'Every account counts in the forecast.'}
+      </p>
+    </section>`
 }
 
 /**
- * Puts the movements under a heading for each day.
+ * One card for each account, and a card to add one more.
  *
- * The heading totals the whole day, and not only the rows that are on screen.
- * A part of a day would give a total that is too small, and a person would read
- * it as the true amount for that day.
+ * The card holds two targets. The emoji opens the picker, and the rest of the
+ * card opens the account. Therefore a person changes the mark without leaving
+ * the home screen, and one tap anywhere else still reaches the movements.
  */
-function groupTxByDay (shown, all) {
-  const dayTotal = new Map()
-  for (const e of all) {
-    dayTotal.set(e.date, (dayTotal.get(e.date) || 0) + e.net)
-  }
-  const dayCount = new Map()
-  for (const e of all) {
-    dayCount.set(e.date, (dayCount.get(e.date) || 0) + 1)
-  }
+function accountCards () {
+  const rows = store.state.balances.filter(b => !b.is_archived)
 
-  const days = []
-  for (const e of shown) {
-    const last = days[days.length - 1]
-    if (last && last.date === e.date) last.items.push(e)
-    else days.push({ date: e.date, items: [e] })
-  }
+  return `
+    <div class="acct-grid">
+      ${rows.map(b => {
+        const account = store.accountById(b.account_id)
+        return `
+        <section class="acct-card ${b.include_in_liquidity ? '' : 'is-off'}">
+          <button class="acct-emoji" data-emoji-for="${b.account_id}"
+                  aria-label="Change the mark of ${esc(b.name)}"
+                  title="Change the mark">${esc(accountEmoji(account || b))}</button>
+          <button class="acct-open" data-open-account="${b.account_id}">
+            <span class="acct-name">${esc(b.name)}</span>
+            <span class="acct-value ${b.balance < 0 ? 'neg' : ''}">${fmt(b.balance)}</span>
+            <span class="acct-sub">
+              ${b.tx_count} ${b.tx_count === 1 ? 'movement' : 'movements'}
+              ${b.include_in_liquidity ? '' : ' &middot; not in the forecast'}
+            </span>
+          </button>
+        </section>`
+      }).join('')}
 
-  return days.map(day => {
-    const net = dayTotal.get(day.date) ?? 0
-    const total = dayCount.get(day.date) ?? day.items.length
-    const hidden = total - day.items.length
-    return `
-    <div class="tx-day">
-      <div class="tx-day-head">
-        <span>${D.fmtDay(day.date)}${day.date === D.today() ? ' &middot; today' : ''}</span>
-        <span class="${net < 0 ? 'neg' : 'pos'}">${fmt(net)}</span>
-      </div>
-      ${day.items.map(item =>
-        item.group ? txGroupRow(item) : txRow(item.rows[0])).join('')}
-      ${hidden > 0 ? `<p class="tx-hidden">${hidden} more on this day.
-        Select "Show more" to see ${hidden === 1 ? 'it' : 'them'}.</p>` : ''}
+      <button class="acct-card acct-add" id="acct-add">
+        <span class="acct-add-mark">${icon('plus')}</span>
+        <span class="acct-name">Add an account</span>
+        <span class="acct-sub">A bank, a wallet, cash or coins</span>
+      </button>
     </div>`
-  }).join('')
 }
 
-
-/**
- * Joins the rows of one event into one item.
- *
- * A purchase that took money from two accounts holds one row for each account.
- * Two separate lines would hide the true cost, therefore this function puts
- * them together and the screen shows the sum.
- */
-/** One event that touched more than one account. */
-function txGroupRow (item) {
-  const rows = item.rows
-  const net = item.net
-  const first = rows[0]
-  const cat = store.categoryById(first.category_id)
-  const isMove = item.kind === 'transfer'
-  const names = [...new Set(rows.map(t => store.accountById(t.account_id)?.name)
-    .filter(Boolean))]
-
-  return `
-  <div class="tx-group">
-    <button class="row tx-row" data-tx="${first.id}">
-      <span class="dot" style="background:${esc(cat?.color || 'var(--text-3)')}"></span>
-      <span class="row-main">
-        <span class="row-title">
-          ${esc(first.description || (isMove ? 'Moved money' : 'Purchase'))}
-          <em class="tx-group-tag">${isMove ? 'moved' : 'split'}</em>
-        </span>
-        <span class="row-sub">
-          ${cat && !isMove ? esc(cat.name) + ' &middot; ' : ''}${esc(names.join(', '))}
-        </span>
-      </span>
-      <span class="row-side">
-        <span class="row-right ${net < 0 ? 'neg' : net > 0 ? 'pos' : 'muted'}">${fmt(net)}</span>
-        <span class="row-rsub">${rows.length}
-          ${rows.length === 1 ? 'account' : 'accounts'}</span>
-      </span>
-    </button>
-    <div class="tx-legs">
-      ${rows.map(t => `
-        <div class="tx-leg">
-          <span>${esc(store.accountById(t.account_id)?.name ?? '?')}</span>
-          <span class="${t.amount < 0 ? 'neg' : 'pos'}">${fmt(t.amount)}</span>
-        </div>`).join('')}
-    </div>
-  </div>`
-}
-
-function txRow (t) {
-  const cat = store.categoryById(t.category_id)
-  const acct = store.accountById(t.account_id)
-  const bits = [
-    cat ? esc(cat.name) : TX_TYPE_LABEL[t.type] || t.type,
-    acct ? esc(acct.name) : null,
-  ].filter(Boolean)
-
-  return `
-  <button class="row tx-row" data-tx="${t.id}">
-    <span class="dot" style="background:${esc(cat?.color || 'var(--text-3)')}"></span>
-    <span class="row-main">
-      <span class="row-title">${esc(t.description || TX_TYPE_LABEL[t.type] || 'Movement')}</span>
-      <span class="row-sub">${bits.join(' &middot; ')}</span>
-    </span>
-    <span class="row-side">
-      <span class="row-right ${t.amount < 0 ? 'neg' : 'pos'}">${fmt(t.amount)}</span>
-      ${t.type === 'adjustment' ? '<span class="row-rsub">set by hand</span>' : ''}
-    </span>
-  </button>`
-}
-
+// ---------------------------------------------------------------------------
+// The other pieces
+// ---------------------------------------------------------------------------
 
 function reviewCard (reviews) {
   return `
@@ -438,8 +279,8 @@ function periodCard (period, profile) {
       ${advice ? adviceBlock(advice, period) : `
         <p class="verdict-msg">
           ${icon('check')} ${period.start_unknown
-            ? `Your money covers every payment before your next pay arrives.`
-            : `Your money covers every payment and your full allowance in this period.`}
+            ? 'Your money covers every payment before your next pay arrives.'
+            : 'Your money covers every payment and your full allowance in this period.'}
         </p>`}
     </div>
   </section>`
@@ -595,27 +436,23 @@ function wire (host, proj) {
     })
   }
 
-  delegate(host, 'click', '[data-tx-filter]', (e, node) => {
-    txFilter = node.dataset.txFilter
-    txShown = 8
-    render(host)
-  })
-  delegate(host, 'click', '[data-tx-more]', () => {
-    txShown += TX_STEP
-    render(host)
-  })
-  delegate(host, 'click', '[data-tx-less]', () => {
-    txShown = 8
-    render(host)
-  })
+  wireTxList(host, listState, () => render(host))
+
+  qs('#acct-add', host)?.addEventListener('click', () => openAccountSheet(null))
+
   delegate(host, 'click', '[data-tx]', (e, node) => {
     const t = store.state.transactions.find(x => x.id === node.dataset.tx)
     if (t) openEditTransaction(t)
   })
 
-  delegate(host, 'click', '[data-account]', (e, node) => {
-    const account = store.accountById(node.dataset.account)
-    if (account) openSetBalance(account)
+  delegate(host, 'click', '[data-open-account]', (e, node) => {
+    location.hash = `#/account/${node.dataset.openAccount}`
+  })
+
+  delegate(host, 'click', '[data-emoji-for]', (e, node) => {
+    e.stopPropagation()
+    const account = store.accountById(node.dataset.emojiFor)
+    if (account) openEmojiPicker(account)
   })
 
   delegate(host, 'click', '[data-pay]', (e, node) => {
