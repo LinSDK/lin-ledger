@@ -25,6 +25,7 @@ import { openPayBill, openPayInstallment, openReceivePayroll,
          openEditTransaction, openAccountSheet } from './actions.js'
 import { accountEmoji, openEmojiPicker } from '../emoji.js'
 import { makeListState, txListCard, wireTxList } from './tx-list.js'
+import { NONE as CATEGORY_NONE } from './category.js'
 
 // The filter and the row count of the transaction list stay between draws.
 const listState = makeListState()
@@ -268,11 +269,11 @@ function periodCard (period, profile) {
           ${period.per_category.map(c => {
             const used = c.budget > 0 ? Math.min(100, (c.spent / c.budget) * 100) : 0
             return `
-            <div class="alw-row">
+            <button class="alw-row is-tap" data-category="${esc(c.category_id)}">
               <span class="alw-name"><i class="dot" style="background:${esc(c.color || 'var(--accent)')}"></i>${esc(c.name)}</span>
               <span class="alw-track"><span class="alw-fill" style="width:${used.toFixed(0)}%;background:${esc(c.color || 'var(--accent)')}"></span></span>
               <span class="alw-val">${fmt(c.remaining)}</span>
-            </div>`
+            </button>`
           }).join('')}
         </div>` : ''}
 
@@ -409,7 +410,10 @@ function topCategories (from, to, limit = 4) {
       const budget = cat?.budget_amount
         ? (cat.budget_basis === 'per_period' ? cat.budget_amount * 2 : cat.budget_amount)
         : null
-      return { label: cat?.name || 'Not in a category', value, budget, color: cat?.color }
+      // The id makes the bar a button. A row with no category still opens, and
+      // it opens on the address "none", because that money really moved too.
+      return { id: cat ? cat.id : CATEGORY_NONE,
+               label: cat?.name || 'Not in a category', value, budget, color: cat?.color }
     })
     .sort((a, b) => b.value - a.value)
     .slice(0, limit)
@@ -447,6 +451,10 @@ function wire (host, proj) {
 
   delegate(host, 'click', '[data-open-account]', (e, node) => {
     location.hash = `#/account/${node.dataset.openAccount}`
+  })
+
+  delegate(host, 'click', '[data-category]', (e, node) => {
+    location.hash = `#/category/${node.dataset.category}`
   })
 
   delegate(host, 'click', '[data-emoji-for]', (e, node) => {

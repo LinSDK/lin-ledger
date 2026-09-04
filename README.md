@@ -20,8 +20,9 @@ A personal money ledger that answers:
   a time. "Add another movement" copies the form underneath and carries the
   account, the date and the category down with it. One save writes every form.
 - **See where the money goes.** Every movement in the order that it happened,
-  with its clock time. Spending by category, largest first, against your
-  budget.
+  with its clock time. Spending by category, largest first, against your budget.
+  Tap any category to open it and read every movement in it, the allowance
+  against the amount, and which accounts the money came out of.
 - **Understand what borrowing costs.** The payment schedule of each loan, the
   interest split, and the true yearly cost after the charges.
 - **Ask before you commit.** *Can I pay this loan off early?* *Can I take this

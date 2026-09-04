@@ -23,6 +23,7 @@ import * as more      from './views/more.js'
 import * as accounts  from './views/accounts.js'
 import * as account   from './views/account.js'
 import * as categories from './views/categories.js'
+import * as category   from './views/category.js'
 import * as payroll   from './views/payroll.js'
 import * as scenarios from './views/scenarios.js'
 import * as settings  from './views/settings.js'
@@ -42,6 +43,7 @@ const ROUTES = [
   { path: 'accounts',   view: accounts,   title: 'Accounts',        tab: 'more', back: '#/more' },
   { path: 'account',    view: account,    title: 'Account',         tab: 'home', back: '#/home' },
   { path: 'categories', view: categories, title: 'Categories',      tab: 'more', back: '#/more' },
+  { path: 'category',   view: category,   title: 'Category',        tab: 'home', back: '#/home' },
   { path: 'payroll',    view: payroll,    title: 'Payroll',         tab: 'more', back: '#/more' },
   { path: 'scenarios',  view: scenarios,  title: 'What if',          tab: 'more', back: '#/more' },
   { path: 'settings',   view: settings,   title: 'Settings',        tab: 'more', back: '#/more' },

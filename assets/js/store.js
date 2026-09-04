@@ -125,6 +125,17 @@ export const netWorth = () => liquidityAll()
 export const transactionsOfAccount = accountId =>
   state.transactions.filter(t => t.account_id === accountId)
 
+/**
+ * Every movement of one category, with the newest first.
+ * A null id gives the movements that carry no category.
+ *
+ * A refund and the change of a purchase both come back INTO a spending
+ * category, therefore this list holds them beside the spending. That is the
+ * point: the list must explain the total, and the total counts them.
+ */
+export const transactionsOfCategory = categoryId =>
+  state.transactions.filter(t => (t.category_id ?? null) === (categoryId ?? null))
+
 /** The balance row of one account. */
 export const balanceOfAccount = accountId =>
   state.balances.find(b => b.account_id === accountId) ?? null
@@ -354,6 +365,38 @@ export function spentByCategory (from, to) {
     out[t.category_id] = (out[t.category_id] || 0) - t.amount
   }
   return out
+}
+
+/**
+ * What one category moved, between two dates.
+ *
+ * A spending category and an income category count in opposite directions,
+ * therefore this function asks which kind it is and answers accordingly.
+ *
+ * For a spending category the answer comes from spentByCategory, and it must:
+ * that function holds the rule that takes change and a refund away from the
+ * cost. A screen that added the rows itself would give a different figure from
+ * the home screen, and one of the two would be wrong.
+ *
+ * For an income category the answer is the pay that arrived. spentByCategory
+ * leaves that out by design, therefore this function is the one place that
+ * counts it.
+ */
+export function categoryTotal (categoryId, from, to) {
+  const cat = categoryId ? categoryById(categoryId) : null
+
+  if (cat && cat.kind === 'income') {
+    let total = 0
+    for (const t of state.transactions) {
+      if (t.occurred_on < from || t.occurred_on > to) continue
+      if ((t.category_id ?? null) !== categoryId) continue
+      if (t.type !== 'income' && t.type !== 'expense') continue
+      total += t.amount
+    }
+    return total
+  }
+
+  return spentByCategory(from, to)[categoryId] ?? 0
 }
 
 /** The payroll date on or before a date, which starts the period that runs. */

@@ -19,6 +19,7 @@ import { openSetBalance, openTransfer, openEditTransaction, openAccountSheet }
 import { openQuickAdd } from './quick-add.js'
 import { accountEmoji, openEmojiPicker } from '../emoji.js'
 import { makeListState, txListCard, wireTxList } from './tx-list.js'
+import { NONE } from './category.js'
 
 // One state for each account, so a person who returns finds the same view.
 const listStates = new Map()
@@ -38,10 +39,11 @@ export async function render (host, params) {
     return
   }
 
-  // The bar at the top of the application carries the name of the account,
-  // because "Account" alone says nothing on a screen that holds one of them.
+  // The bar at the top and the tab of the browser both carry the name of the
+  // account, because "Account" alone says nothing on a screen that holds one.
   const title = qs('#top-title')
   if (title) title.textContent = account.name
+  document.title = `${account.name} - Lin Ledger`
 
   const rows = store.transactionsOfAccount(id)
   const listState = stateFor(id)
@@ -140,7 +142,8 @@ function byCategoryCard (rows, from, to) {
   }
 
   const list = [...totals.entries()]
-    .map(([id, value]) => ({ name: store.categoryById(id)?.name || 'Not in a category',
+    .map(([id, value]) => ({ id: id || NONE,
+                             name: store.categoryById(id)?.name || 'Not in a category',
                              color: store.categoryById(id)?.color, value }))
     .filter(x => x.value !== 0)
     .sort((a, b) => b.value - a.value)
@@ -150,7 +153,7 @@ function byCategoryCard (rows, from, to) {
   return card(`Spending from this account in ${D.fmtMonth(to)}`, list.length
     ? `<div class="acct-cats">
         ${list.map(x => `
-          <div class="acct-cat">
+          <button class="acct-cat is-tap" data-category="${esc(x.id)}">
             <span class="acct-cat-name">
               <i class="dot" style="background:${esc(x.color || 'var(--accent)')}"></i>
               ${esc(x.name)}</span>
@@ -160,7 +163,7 @@ function byCategoryCard (rows, from, to) {
                            background:${esc(x.color || 'var(--accent)')}"></span>
             </span>
             <span class="acct-cat-val">${fmt(x.value)}</span>
-          </div>`).join('')}
+          </button>`).join('')}
       </div>`
     : empty('No spending from this account this month.'))
 }
@@ -183,5 +186,9 @@ function wire (host, account, listState) {
   delegate(host, 'click', '[data-tx]', (e, node) => {
     const t = store.state.transactions.find(x => x.id === node.dataset.tx)
     if (t) openEditTransaction(t)
+  })
+
+  delegate(host, 'click', '[data-category]', (e, node) => {
+    location.hash = `#/category/${node.dataset.category}`
   })
 }

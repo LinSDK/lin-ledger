@@ -870,6 +870,45 @@ textarea.inp { min-height: 70px; resize: vertical; line-height: 1.45; }
 .acct-cat-val { font-size: .82rem; font-weight: 650;
                 font-variant-numeric: tabular-nums; }
 
+/* --- one category -------------------------------------------------------- */
+
+.cat-hero { flex-direction: row; align-items: center; gap: 13px; }
+.cat-hero-dot { width: 14px; height: 54px; border-radius: 999px; flex: 0 0 auto; }
+.cat-hero-text { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.cat-hero .hero-value { font-size: 1.95rem; }
+
+.cat-budget { display: flex; flex-direction: column; gap: 7px; }
+.cat-budget-head { display: flex; align-items: baseline; justify-content: space-between;
+                   gap: 9px; font-size: .84rem; font-weight: 600;
+                   font-variant-numeric: tabular-nums; }
+.cat-budget-track { height: 9px; border-radius: 5px; background: var(--bg-3);
+                    overflow: hidden; }
+.cat-budget-fill { display: block; height: 100%; border-radius: 5px; }
+.cat-budget-fill.is-over { background: var(--bad) !important; }
+
+/*
+ * A block that opens a screen.
+ *
+ * Three lists carry this class: the bars of the largest spending, the allowance
+ * rows and the category rows of one account. Each one was a plain block before,
+ * and each one is a button now. The rule below is the only thing that says so
+ * on the screen, therefore it stays in one place and all three read the same.
+ */
+.is-tap { width: 100%; text-align: left; cursor: pointer;
+          border-radius: var(--r-sm); transition: background .12s; }
+.is-tap:hover { background: var(--bg-3); }
+.is-tap:active { background: var(--line); }
+.is-tap:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* The bars of the largest spending, once they open a category. */
+.bar-row.is-tap { position: relative; padding: 6px 22px 6px 6px; margin: 0 -6px; }
+.bar-chev { position: absolute; right: 2px; top: 50%; margin-top: -8px;
+            width: 16px; height: 16px; color: var(--text-3); }
+
+/* An allowance row and a category row of one account keep their own grid. */
+.alw-row.is-tap { padding: 4px 6px; margin: 0 -6px; }
+.acct-cat.is-tap { padding: 4px 6px; margin: 0 -6px; }
+
 /* --- the emoji picker ---------------------------------------------------- */
 
 .emoji-now { display: flex; align-items: center; gap: 11px; padding: 11px;

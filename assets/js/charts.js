@@ -10,6 +10,10 @@
 import { fmtCompact, fmt } from './money.js'
 import { fmtShort, fmtDate, parts, monthKey } from './dates.js'
 
+/** The mark that says a bar opens a screen. charts.js asks nothing of ui.js. */
+const CHEVRON = '<svg class="ic bar-chev" viewBox="0 0 24 24" aria-hidden="true">'
+  + '<path d="M9 18l6-6-6-6"/></svg>'
+
 const esc = s => String(s).replace(/[&<>"]/g,
   ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]))
 
@@ -171,6 +175,14 @@ export function sparkline (points, opts = {}) {
  * The bar shows the amount spent. A thin line marks the budget, therefore the
  * user sees at once which category went past its budget.
  */
+/**
+ * One bar for each category.
+ *
+ * An item that carries an id becomes a button, and the button says which
+ * category it holds. The screen that drew the bars then sends a tap to that
+ * category. An item with no id stays a plain block, therefore a caller that has
+ * nothing to open loses nothing.
+ */
 export function categoryBars (items, opts = {}) {
   const { max = null, showBudget = true } = opts
   if (!items.length) return `<div class="chart-empty">Nothing spent in this period.</div>`
@@ -181,8 +193,12 @@ export function categoryBars (items, opts = {}) {
     const pct = Math.max(0.5, (i.value / top) * 100)
     const bpct = i.budget ? Math.min(100, (i.budget / top) * 100) : null
     const over = i.budget && i.value > i.budget
+    const tag = i.id ? 'button' : 'div'
+    const attrs = i.id
+      ? ` type="button" class="bar-row is-tap" data-category="${esc(i.id)}"`
+      : ' class="bar-row"'
     return `
-    <div class="bar-row">
+    <${tag}${attrs}>
       <div class="bar-head">
         <span class="bar-label"><i class="dot" style="background:${esc(i.color || 'var(--accent)')}"></i>${esc(i.label)}</span>
         <span class="bar-value ${over ? 'is-over' : ''}">${fmt(i.value)}</span>
@@ -198,7 +214,8 @@ export function categoryBars (items, opts = {}) {
         ${total > 0 ? `${((i.value / total) * 100).toFixed(0)}% of the total` : ''}
         ${i.budget ? ` &middot; budget ${fmt(i.budget)}${over ? ` &middot; over by ${fmt(i.value - i.budget)}` : ''}` : ''}
       </div>
-    </div>`
+      ${i.id ? CHEVRON : ''}
+    </${tag}>`
   }).join('') + `</div>`
 }
 

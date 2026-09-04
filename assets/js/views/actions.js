@@ -359,6 +359,107 @@ export function openAccountSheet (account, { onDelete } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Add or change a category
+// ---------------------------------------------------------------------------
+
+export const CATEGORY_COLORS = ['#22c55e', '#0ea5e9', '#f59e0b', '#ef4444',
+                                '#a855f7', '#6366f1', '#14b8a6', '#64748b',
+                                '#ec4899', '#84cc16']
+
+/**
+ * The sheet that adds a category or changes one.
+ *
+ * Two fields decide how the forecast treats a category:
+ *   budget_basis  says if the amount belongs to a pay period or to a month.
+ *   is_variable   says if the advisor may propose a cut in that category.
+ *
+ * Rent is not variable, because you cannot decide to pay less rent. Food is
+ * variable, because you can.
+ *
+ * The list screen and the screen of one category both open this sheet. It lives
+ * here for the same reason as the account sheet: a form that two screens hold
+ * twice becomes two different forms.
+ */
+export function openCategorySheet (cat, { onDelete } = {}) {
+  const isNew = !cat
+  formSheet({
+    title: isNew ? 'Add a category' : `Change ${cat.name}`,
+    submitLabel: isNew ? 'Add' : 'Save',
+    fields: [
+      { name: 'name', label: 'Name', type: 'text', required: true },
+      { name: 'kind', label: 'Type', type: 'segment', options: [
+        { value: 'expense', label: 'Spending' },
+        { value: 'income', label: 'Income' },
+        { value: 'transfer', label: 'Transfer' }] },
+      { name: 'group_name', label: 'Group', type: 'text',
+        placeholder: 'Essentials, Lifestyle, Debt' },
+      { name: 'budget_amount', label: 'Allowance', type: 'money',
+        when: v => v.kind === 'expense',
+        hint: 'Leave this empty if the category has no allowance.' },
+      { name: 'budget_basis', label: 'That allowance is for', type: 'segment',
+        when: v => v.kind === 'expense' && v.budget_amount,
+        options: [{ value: 'per_period', label: 'each pay period' },
+                  { value: 'per_month', label: 'each month' }] },
+      { name: 'is_variable', label: '', type: 'switch',
+        when: v => v.kind === 'expense',
+        onLabel: 'The advisor may propose a cut here' },
+      { name: 'color', label: 'Colour', type: 'select',
+        options: CATEGORY_COLORS.map(c => ({ value: c, label: c })) },
+      { name: 'preview', label: 'Each month this is', type: 'static',
+        when: v => v.kind === 'expense' && v.budget_amount,
+        render: v => v.budget_amount
+          ? fmt(v.budget_basis === 'per_period' ? v.budget_amount * 2 : v.budget_amount)
+          : '--' },
+    ],
+    values: cat || {
+      kind: 'expense', budget_basis: 'per_period', is_variable: true,
+      color: CATEGORY_COLORS[store.state.categories.length % CATEGORY_COLORS.length],
+    },
+    extraFooter: isNew ? '' : `
+      <div class="row-actions">
+        <button type="button" class="btn btn-danger-ghost" data-act="delete">Delete</button>
+      </div>`,
+    onSubmit: async v => {
+      const patch = {
+        name: v.name, kind: v.kind, group_name: v.group_name,
+        budget_amount: v.kind === 'expense' ? v.budget_amount : null,
+        budget_basis: v.budget_basis || 'per_month',
+        is_variable: v.kind === 'expense' ? !!v.is_variable : false,
+        color: v.color,
+      }
+      if (isNew) {
+        patch.sort_order = store.state.categories.length + 1
+        await store.createCategory(patch)
+      } else {
+        await store.updateCategory(cat.id, patch)
+      }
+      await store.refresh()
+      toast(isNew ? 'The category is added.' : 'The category is saved.', 'ok')
+    },
+    onMount (sheet) {
+      sheet.el.addEventListener('click', async e => {
+        if (!e.target.closest('[data-act="delete"]')) return
+        const ok = await confirmSheet({
+          title: `Delete ${cat.name}?`,
+          message: 'Money movements in this category stay, but they lose the '
+                 + 'category. The statistics then group them as "not in a category".',
+          confirmLabel: 'Delete', danger: true,
+        })
+        if (!ok) return
+        try {
+          await store.deleteCategory(cat.id)
+          sheet.close()
+          await store.refresh()
+          toast('The category is deleted.', 'ok')
+          // The screen of one category must not stay open with none behind it.
+          onDelete?.()
+        } catch (ex) { toast(ex.message, 'error') }
+      })
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
 // A bill that happens one time only
 // ---------------------------------------------------------------------------
 

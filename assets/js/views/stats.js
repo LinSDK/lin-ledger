@@ -8,6 +8,7 @@ import * as store from '../store.js'
 import { fmt, fmtPct, fmtCompact } from '../money.js'
 import * as D from '../dates.js'
 import { categoryBars, monthBars } from '../charts.js'
+import { NONE as CATEGORY_NONE } from './category.js'
 import { icon, esc, card, empty, money, delegate, qs, qsa, listRow } from '../ui.js'
 import { effectiveApr } from '../amortize.js'
 
@@ -143,7 +144,8 @@ function byCategory (tx, type, span) {
         ? c.budget_amount * 2 : c.budget_amount
       budget = Math.round(perMonth * months)
     }
-    return { label: c?.name || 'Not in a category', value, budget, color: c?.color }
+    return { id: c ? c.id : CATEGORY_NONE,
+             label: c?.name || 'Not in a category', value, budget, color: c?.color }
   }).sort((a, b) => b.value - a.value)
 }
 
